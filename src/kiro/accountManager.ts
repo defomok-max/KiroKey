@@ -146,6 +146,9 @@ export class AccountManager {
       const existing = byId.get(discovered.id);
       if (existing) {
         // Refresh token from disk wins (Kiro IDE may have re-logged in).
+        // Capture the previous value FIRST so we can detect rotation below
+        // — the old code compared after assignment, which was always false.
+        const previousRefreshToken = existing.refreshToken;
         existing.refreshToken = discovered.refreshToken;
         if (discovered.clientId) existing.clientId = discovered.clientId;
         if (discovered.clientSecret) existing.clientSecret = discovered.clientSecret;
@@ -155,11 +158,18 @@ export class AccountManager {
         if (discovered.label && existing.label === existing.id) {
           existing.label = discovered.label;
         }
-        // If we were terminal because of a dead refresh token, clear it.
-        if (existing.state === "terminal" && existing.refreshToken !== discovered.refreshToken) {
+        // If we were terminal because of a dead refresh token, clear it when
+        // a fresh one shows up on disk (user re-logged in Kiro IDE).
+        if (existing.state === "terminal" && previousRefreshToken !== discovered.refreshToken) {
+          log.info("accounts: terminal account recovered from new refresh token", {
+            id: existing.id,
+          });
           existing.state = "healthy";
           existing.lastError = null;
           existing.failureCount = 0;
+          existing.coolingUntil = 0;
+          existing.accessToken = null;
+          existing.expiresAt = 0;
         }
       } else {
         byId.set(discovered.id, discovered);
@@ -357,20 +367,34 @@ export class AccountManager {
     a.lastError = null;
     a.coolingUntil = 0;
     a.failureCount = 0;
+    log.info("account: reset", { id: accountId });
     return true;
   }
 
-  /** Note a successful request against an account. */
+  /** Enable or disable an account (operator action). */
+  setDisabled(accountId: string, disabled: boolean): boolean {
+    const a = this.accounts.find((x) => x.id === accountId);
+    if (!a) return false;
+    a.disabled = disabled;
+    log.info("account: " + (disabled ? "disabled" : "enabled"), { id: accountId });
+    return true;
+  }
+
+  /**
+   * Note a successful request against an account. Does NOT touch
+   * `requestCount` — callers must call `noteRequest()` once at attempt time,
+   * and `noteSuccess()` only adjusts `successCount` + state recovery.
+   */
   noteSuccess(accountId: string): void {
     const a = this.accounts.find((x) => x.id === accountId);
     if (!a) return;
-    a.requestCount += 1;
     a.successCount += 1;
     if (a.state === "cooling" && a.coolingUntil <= Date.now()) {
       a.state = "healthy";
     }
   }
 
+  /** Note that a request was dispatched against an account. */
   noteRequest(accountId: string): void {
     const a = this.accounts.find((x) => x.id === accountId);
     if (!a) return;

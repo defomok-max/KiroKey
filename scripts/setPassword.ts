@@ -9,7 +9,8 @@
  *   npm run set-password                  # prompt interactively
  *   npm run set-password -- <password>    # set in one line
  *   npm run set-password -- --random      # generate a strong random one
- *   npm run set-password -- --show        # print the current password
+ *   npm run set-password -- --show        # show that a password is set (masked)
+ *   npm run set-password -- --reveal      # like --show, but reveal the value
  *   npm run set-password -- --clear       # delete the stored password
  *   npm run clear-password                # alias for --clear
  */
@@ -58,10 +59,18 @@ async function prompt(question: string, hidden: boolean): Promise<string> {
   });
 }
 
+function maskPassword(value: string): string {
+  if (!value) return "";
+  if (value.length <= 4) return "*".repeat(value.length);
+  if (value.length <= 8) return value.slice(0, 1) + "*".repeat(value.length - 1);
+  return value.slice(0, 2) + "*".repeat(value.length - 4) + value.slice(-2);
+}
+
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const isClear = args.includes("--clear") || args.includes("-c") || args.includes("--clear-password");
-  const isShow = args.includes("--show") || args.includes("--print");
+  const isReveal = args.includes("--reveal") || args.includes("--print");
+  const isShow = args.includes("--show") || isReveal;
   const isRandom = args.includes("--random") || args.includes("-r");
   const path = passwordFilePath();
 
@@ -73,7 +82,11 @@ async function main(): Promise<void> {
     } else {
       console.log("kiro-router: password is set");
       console.log("file:", path);
-      console.log("value:", current);
+      if (isReveal) {
+        console.log("value:", current);
+      } else {
+        console.log("value:", maskPassword(current), "(pass --reveal to show the full value)");
+      }
     }
     return;
   }

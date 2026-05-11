@@ -103,9 +103,12 @@ single use case because it:
 | GET    | `/v1/models`                      | List Claude models exposed via Kiro                      |
 | GET    | `/health`                         | Liveness + per-state account summary                     |
 | GET    | `/admin/accounts`                 | Full per-account status (tokens redacted)                |
+| GET    | `/admin/stats`                    | Aggregate counters across all accounts                   |
 | POST   | `/admin/refresh`                  | Kick a proactive refresh sweep                           |
 | POST   | `/admin/reload`                   | Rescan `~/.aws/sso/cache` and merge new accounts         |
 | POST   | `/admin/accounts/:id/reset`       | Clear cool-downs / failure counters for one account      |
+| POST   | `/admin/accounts/:id/disable`     | Pause routing to this account without deleting state     |
+| POST   | `/admin/accounts/:id/enable`     | Resume routing to a previously disabled account          |
 
 Supported models (proxied to AWS CodeWhisperer):
 
@@ -227,7 +230,9 @@ or export them directly.
 | `KIRO_REFRESH_TOKEN`        | _(unset)_           | Single override account (for headless/Docker)            |
 | `KIRO_PROFILE_ARN`          | _(unset)_           | Profile ARN for IDC users                                |
 | `KIRO_REFRESH_LEAD_SECONDS` | `300`               | Refresh tokens this many seconds before expiry           |
-| `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                |
+| `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority` (invalid → warn + round-robin) |
+| `KIRO_MAX_ATTEMPTS`         | `5`                 | Max accounts tried per client request (`1`..`50`)        |
+| `CORS_ORIGIN`               | `*`                 | `Access-Control-Allow-Origin` for browser callers        |
 | `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                      |
 
 ## Integration recipes
