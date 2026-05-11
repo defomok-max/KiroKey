@@ -14,7 +14,10 @@
     "start:dist": "node dist/server.js",
     "test": "node --import tsx/esm --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "echo 'no lint configured (kept dependency-light)'"
+    "lint": "echo 'no lint configured (kept dependency-light)'",
+    "set-password": "tsx scripts/setPassword.ts",
+    "clear-password": "tsx scripts/setPassword.ts --clear",
+    "show-password": "tsx scripts/setPassword.ts --show"
   },
   "engines": {
     "node": ">=20"

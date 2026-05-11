@@ -33,9 +33,9 @@ Cline, Continue.dev, Roo Code, Claude Code, or any tool that speaks
 
 3. **Point any OpenAI-compatible tool at it:**
 
-   - **Base URL**: `http://127.0.0.1:11437/v1`
-   - **API Key**: anything (e.g. `kiro`) — the proxy is `127.0.0.1`-only by
-     default, so the key is just a placeholder unless you set `API_KEY=`.
+   - **Base URL**: `http://<host>:11437/v1` — use `127.0.0.1` if on the same
+     machine, or the LAN/VPN IP of the box running KiroKey.
+   - **API Key / Password**: see [Set a password](#set-a-password) below.
    - **Model**: `claude-sonnet-4.5` (or `claude-opus-4.7`, `claude-haiku-4.5`, …)
 
 That's it. Quick test:
@@ -44,6 +44,38 @@ That's it. Quick test:
 curl http://127.0.0.1:11437/health
 curl http://127.0.0.1:11437/v1/models
 ```
+
+## Set a password
+
+The default `HOST` is `0.0.0.0` so the proxy is reachable from your LAN/VPN.
+**You should set a password** so only you (or who you share it with) can use
+your Kiro subscription.
+
+Easiest — one-time persistent password, server picks it up on every start:
+
+```bash
+./start.sh --set-password            # prompts (input hidden)
+./start.sh --set-password mySecret   # one-liner
+./start.sh --set-password --random   # generate strong random one
+./start.sh --show-password           # print the stored value
+./start.sh --clear-password          # remove it
+```
+
+The equivalent npm scripts also work: `npm run set-password`,
+`npm run show-password`, `npm run clear-password`. Stored at
+`~/.kiro-router/password` (`0600`).
+
+Alternatively use the `API_KEY` (or alias `PASSWORD`) env var — it wins over
+the stored file, useful for CI/Docker:
+
+```bash
+API_KEY=mySecret ./start.sh
+```
+
+Clients always send it as **`Authorization: Bearer <password>`**.
+
+If neither is set AND `HOST=0.0.0.0` (the default), startup logs a loud
+open-proxy warning.
 
 ---
 
@@ -189,8 +221,8 @@ or export them directly.
 | Variable                    | Default             | Description                                              |
 | --------------------------- | ------------------- | -------------------------------------------------------- |
 | `PORT`                      | `11437`             | HTTP port                                                |
-| `HOST`                      | `127.0.0.1`         | Bind address                                             |
-| `API_KEY`                   | _(unset)_           | If set, clients must send `Authorization: Bearer <key>`  |
+| `HOST`                      | `0.0.0.0`           | Bind address (set `127.0.0.1` for localhost-only)        |
+| `API_KEY` / `PASSWORD`      | _(file)_            | Password; env wins over `~/.kiro-router/password`        |
 | `KIRO_TOKEN_DIR`            | `~/.aws/sso/cache`  | Where to discover Kiro account JSON files                |
 | `KIRO_REFRESH_TOKEN`        | _(unset)_           | Single override account (for headless/Docker)            |
 | `KIRO_PROFILE_ARN`          | _(unset)_           | Profile ARN for IDC users                                |
@@ -215,7 +247,7 @@ Or set in `~/.config/opencode/config.json`:
 {
   "provider": "openai",
   "openai_base_url": "http://127.0.0.1:11437/v1",
-  "openai_api_key": "kiro",
+  "openai_api_key": "<your-password>",
   "model": "claude-sonnet-4.5"
 }
 ```
@@ -350,12 +382,13 @@ node dist/server.js
 
 ## Security
 
-- The proxy binds to `127.0.0.1` by default — only local processes can reach
-  it. If you set `HOST=0.0.0.0`, also set `API_KEY` so the proxy isn't open
-  to your LAN.
-- Tokens are stored under `~/.kiro-router/accounts.json` with mode `0600` and
-  never logged (admin endpoints redact them).
-- Don't commit your `.env` or `accounts.json`.
+- The proxy binds to `0.0.0.0` by default. **Set a password** (see [Set a
+  password](#set-a-password)) so only people who know it can use your Kiro
+  subscription. If you don't want network access at all, set `HOST=127.0.0.1`.
+- The password file (`~/.kiro-router/password`) and account manifest
+  (`~/.kiro-router/accounts.json`) are stored with mode `0600` and never
+  logged. Admin endpoints redact tokens.
+- Don't commit your `.env` or `~/.kiro-router/` files.
 
 ## Troubleshooting
 
@@ -365,8 +398,9 @@ node dist/server.js
 | `No Kiro accounts configured`                          | Same as above.                                                                                           |
 | `refresh failed: status=400` (terminal)                | Refresh token is dead (expired/revoked). Re-login in Kiro IDE.                                           |
 | `429` returned to client after a few requests          | All accounts are rate-limited. Add another Kiro account or wait for cool-down to expire.                 |
-| Tools can't connect to `127.0.0.1:11437`               | Server not running (`npm start`), wrong port (`PORT=`), or `HOST=0.0.0.0` with firewall in the way.      |
-| `Unauthorized` from KiroKey                            | You set `API_KEY=`, and the client isn't sending `Authorization: Bearer <key>` matching it.              |
+| Tools can't connect to `127.0.0.1:11437`               | Server not running (`./start.sh`), wrong port (`PORT=`), or firewall blocking the LAN address.           |
+| `Unauthorized` from KiroKey                            | Password set, but client isn't sending `Authorization: Bearer <password>` matching it.                   |
+| Open-proxy banner at startup                           | `HOST=0.0.0.0` (default) AND no password. Run `./start.sh --set-password` to silence it.                 |
 
 ## License
 

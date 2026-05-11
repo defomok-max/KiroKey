@@ -12,6 +12,7 @@ import { URL } from "node:url";
 import { loadConfig } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
 import { AccountManager, type RoutingStrategy } from "./kiro/accountManager.js";
+import { warmUpstream } from "./kiro/client.js";
 import {
   getAuthBearer,
   handleCorsPreflight,
@@ -33,13 +34,43 @@ async function main() {
   const cfg = loadConfig();
   setLogLevel(cfg.logLevel);
 
+  const passwordSource = cfg.apiKey
+    ? process.env.API_KEY || process.env.PASSWORD
+      ? "env"
+      : "file"
+    : "none";
   log.info("kiro-router: starting", {
     port: cfg.port,
     host: cfg.host,
-    apiKey: cfg.apiKey ? "set" : "not set (open access on " + cfg.host + ")",
+    password: passwordSource,
     tokenDir: cfg.kiroTokenDir,
     refreshLead: cfg.refreshLeadSeconds,
   });
+
+  // Loud banner when bound to all interfaces without auth — anyone who can
+  // reach this machine could consume the user's Kiro subscription.
+  const exposedAll = cfg.host === "0.0.0.0" || cfg.host === "::" || cfg.host === "*";
+  if (exposedAll && !cfg.apiKey) {
+    const banner =
+      "\n" +
+      "===============================================================================\n" +
+      "  WARNING: kiro-router is listening on " +
+      cfg.host +
+      ":" +
+      cfg.port +
+      " with NO password set.\n" +
+      "  This is an OPEN PROXY — anyone who can reach this machine can use your\n" +
+      "  Kiro subscription. Fix one of:\n" +
+      "    npm run set-password       (recommended — persistent)\n" +
+      "    API_KEY=<secret> npm start (one-shot via env)\n" +
+      "    HOST=127.0.0.1 npm start   (bind to localhost only)\n" +
+      "===============================================================================\n";
+    process.stderr.write(banner);
+    log.warn("kiro-router: open proxy mode", {
+      host: cfg.host,
+      hint: "run `npm run set-password`, or set API_KEY, or set HOST=127.0.0.1",
+    });
+  }
 
   const strategy = (process.env.KIRO_STRATEGY as RoutingStrategy) || "round-robin";
   const manager = new AccountManager({
@@ -64,6 +95,12 @@ async function main() {
       ids: list.map((a) => a.id),
       labels: list.map((a) => a.label),
     });
+    // Best-effort pre-warm of the upstream TLS connection so the first real
+    // chat request doesn't pay for the handshake.
+    void warmUpstream().then(
+      () => log.debug("upstream: warmed"),
+      (err) => log.debug("upstream: warm-up failed", { err: (err as Error).message })
+    );
   }
 
   const server = createServer((req, res) => {

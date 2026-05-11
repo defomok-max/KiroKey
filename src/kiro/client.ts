@@ -12,6 +12,7 @@
  */
 
 import { Agent, request as httpsRequest } from "node:https";
+import { connect as tlsConnect } from "node:tls";
 import { Readable } from "node:stream";
 import { randomUUID } from "node:crypto";
 
@@ -25,6 +26,35 @@ const KEEP_ALIVE_AGENT = new Agent({
   maxFreeSockets: 8,
   scheduling: "lifo",
 });
+
+/**
+ * Open a TLS connection to CodeWhisperer and immediately drop it into the
+ * keep-alive pool. Called at server start so the first real request doesn't
+ * pay for DNS + TCP + TLS handshake. Best-effort: failures are swallowed
+ * and logged at debug level by the caller.
+ */
+export function warmUpstream(timeoutMs = 4000): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const sock = tlsConnect({
+      host: HOST,
+      port: 443,
+      servername: HOST,
+      ALPNProtocols: ["http/1.1"],
+    });
+    const timer = setTimeout(() => {
+      sock.destroy(new Error("warm-up timeout"));
+    }, timeoutMs);
+    sock.once("secureConnect", () => {
+      clearTimeout(timer);
+      sock.end();
+      resolve();
+    });
+    sock.once("error", (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
 
 export interface KiroResponse {
   /** HTTP status code from upstream. */
