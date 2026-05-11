@@ -1,0 +1,44 @@
+{
+  "name": "kiro-router",
+  "version": "0.1.0",
+  "description": "Fast, focused OpenAI/Anthropic-compatible proxy for the Kiro IDE subscription. Use Claude via Kiro from OpenCode, Kilo Code, Cline, Continue, Roo, etc.",
+  "type": "module",
+  "bin": {
+    "kiro-router": "./dist/server.js"
+  },
+  "main": "./dist/server.js",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "build": "tsc -p tsconfig.json",
+    "start:dist": "node dist/server.js",
+    "test": "node --import tsx/esm --test test/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo 'no lint configured (kept dependency-light)'"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "keywords": [
+    "kiro",
+    "kiro-ide",
+    "openai",
+    "anthropic",
+    "claude",
+    "codewhisperer",
+    "aws-eventstream",
+    "proxy",
+    "opencode",
+    "kilo-code",
+    "cline",
+    "continue.dev",
+    "roo"
+  ],
+  "license": "MIT"
+}

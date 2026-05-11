@@ -1,0 +1,186 @@
+/**
+ * Persistent manifest of Kiro accounts at ~/.kiro-router/accounts.json.
+ * Atomic writes via tmpfile + rename so Kiro IDE and kiro-router never
+ * see a torn file.
+ */
+
+import { readFile, writeFile, mkdir, rename, readdir, stat } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join, basename } from "node:path";
+import { randomUUID } from "node:crypto";
+
+import { log } from "../logger.js";
+import type { KiroAccount } from "./types.js";
+
+const MANIFEST_DIR = join(homedir(), ".kiro-router");
+const MANIFEST_PATH = join(MANIFEST_DIR, "accounts.json");
+
+interface ManifestFile {
+  version: 1;
+  accounts: KiroAccount[];
+}
+
+export async function ensureManifestDir(): Promise<void> {
+  if (!existsSync(MANIFEST_DIR)) {
+    await mkdir(MANIFEST_DIR, { recursive: true });
+  }
+}
+
+export async function loadManifest(): Promise<KiroAccount[]> {
+  if (!existsSync(MANIFEST_PATH)) return [];
+  try {
+    const raw = await readFile(MANIFEST_PATH, "utf-8");
+    const parsed = JSON.parse(raw) as ManifestFile;
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.accounts)) {
+      log.warn("manifest: invalid shape, ignoring", { path: MANIFEST_PATH });
+      return [];
+    }
+    return parsed.accounts.map(normalizeAccount);
+  } catch (err) {
+    log.error("manifest: failed to read", {
+      path: MANIFEST_PATH,
+      err: (err as Error).message,
+    });
+    return [];
+  }
+}
+
+export async function saveManifest(accounts: KiroAccount[]): Promise<void> {
+  await ensureManifestDir();
+  const payload: ManifestFile = { version: 1, accounts };
+  const tmp = `${MANIFEST_PATH}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmp, JSON.stringify(payload, null, 2), { mode: 0o600 });
+  await rename(tmp, MANIFEST_PATH);
+}
+
+function normalizeAccount(a: Partial<KiroAccount>): KiroAccount {
+  return {
+    id: a.id || randomUUID(),
+    label: a.label || a.id || "unnamed",
+    authMethod: a.authMethod || "builder-id",
+    refreshToken: a.refreshToken || "",
+    accessToken: a.accessToken ?? null,
+    expiresAt: typeof a.expiresAt === "number" ? a.expiresAt : 0,
+    region: a.region || "us-east-1",
+    clientId: a.clientId ?? null,
+    clientSecret: a.clientSecret ?? null,
+    profileArn: a.profileArn ?? null,
+    sourcePath: a.sourcePath ?? null,
+    state: a.state || "healthy",
+    lastError: a.lastError ?? null,
+    coolingUntil: a.coolingUntil ?? 0,
+    failureCount: a.failureCount ?? 0,
+    requestCount: a.requestCount ?? 0,
+    successCount: a.successCount ?? 0,
+    priority: typeof a.priority === "number" ? a.priority : 100,
+    disabled: !!a.disabled,
+  };
+}
+
+/**
+ * Scan a directory of AWS SSO cache JSON files and extract any that look like
+ * Kiro tokens. Kiro refresh tokens start with `aorAAAAAG`. Returns one
+ * KiroAccount per matching file.
+ */
+export async function discoverFromAwsSsoCache(cacheDir: string): Promise<KiroAccount[]> {
+  if (!existsSync(cacheDir)) {
+    log.debug("manifest.discover: cache dir does not exist", { cacheDir });
+    return [];
+  }
+
+  const out: KiroAccount[] = [];
+  let entries: string[];
+  try {
+    entries = await readdir(cacheDir);
+  } catch (err) {
+    log.warn("manifest.discover: failed to readdir", {
+      cacheDir,
+      err: (err as Error).message,
+    });
+    return [];
+  }
+
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue;
+    const fullPath = join(cacheDir, entry);
+    try {
+      const s = await stat(fullPath);
+      if (!s.isFile()) continue;
+    } catch {
+      continue;
+    }
+    try {
+      const raw = await readFile(fullPath, "utf-8");
+      const data = JSON.parse(raw);
+      const rt: unknown = data?.refreshToken;
+      if (typeof rt !== "string" || !rt.startsWith("aorAAAAAG")) continue;
+      const id = `aws-sso:${basename(entry, ".json")}`;
+      out.push(
+        normalizeAccount({
+          id,
+          label: extractLabel(data) || id,
+          authMethod: data.clientId && data.clientSecret ? "builder-id" : "social",
+          refreshToken: rt,
+          accessToken: typeof data.accessToken === "string" ? data.accessToken : null,
+          expiresAt: parseExpiresAt(data),
+          region: typeof data.region === "string" ? data.region : "us-east-1",
+          clientId: typeof data.clientId === "string" ? data.clientId : null,
+          clientSecret: typeof data.clientSecret === "string" ? data.clientSecret : null,
+          profileArn: typeof data.profileArn === "string" ? data.profileArn : null,
+          sourcePath: fullPath,
+          state: "healthy",
+        })
+      );
+    } catch (err) {
+      log.debug("manifest.discover: skipping unreadable file", {
+        fullPath,
+        err: (err as Error).message,
+      });
+    }
+  }
+
+  return out;
+}
+
+function extractLabel(data: Record<string, unknown>): string | null {
+  if (typeof data.startUrl === "string") return data.startUrl;
+  if (typeof data.email === "string") return data.email;
+  if (typeof data.accessToken === "string") {
+    const email = tryExtractEmailFromJwt(data.accessToken);
+    if (email) return email;
+  }
+  return null;
+}
+
+function tryExtractEmailFromJwt(token: string): string | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    let payload = parts[1];
+    while (payload.length % 4) payload += "=";
+    const decoded = JSON.parse(
+      Buffer.from(payload.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString("utf-8")
+    );
+    return (
+      (typeof decoded.email === "string" ? decoded.email : null) ||
+      (typeof decoded.preferred_username === "string" ? decoded.preferred_username : null) ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function parseExpiresAt(data: Record<string, unknown>): number {
+  if (typeof data.expiresAt === "string") {
+    const parsed = Date.parse(data.expiresAt);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  if (typeof data.expiresIn === "number" && typeof data.registrationExpiresAt === "string") {
+    // Fallback heuristic; rare.
+  }
+  return 0;
+}
+
+export const MANIFEST_PATHS = { MANIFEST_DIR, MANIFEST_PATH };
