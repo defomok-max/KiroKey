@@ -1,17 +1,62 @@
-# kiro-router
+# KiroKey (kiro-router)
 
 **Быстрый, специализированный прокси с поддержкой нескольких аккаунтов,
 который превращает твою подписку Kiro IDE в OpenAI / Anthropic-совместимый
-API.** Подключай в OpenCode, Kilo Code, Cline, Continue.dev, Roo Code — в
-любой инструмент, который умеет говорить по `/v1/chat/completions` или
-`/v1/messages`.
+API.** Подключай в OpenCode, Kilo Code, Cline, Continue.dev, Roo Code,
+Claude Code — в любой инструмент, который умеет говорить по
+`/v1/chat/completions` или `/v1/messages`.
 
 > EN — [README.md](README.md)
 
-Вдохновлён [diegosouzapw/OmniRoute](https://github.com/diegosouzapw/OmniRoute),
-но в отличие от него — laser-focused на Kiro и поэтому быстрее + стабильнее:
+---
 
-- **ноль runtime-зависимостей** (только Node ≥ 20),
+## TL;DR — 3 шага
+
+1. **Залогинься в Kiro IDE один раз** (https://kiro.dev), чтобы он сохранил
+   `~/.aws/sso/cache/kiro-auth-token.json`. Можешь логиниться в несколько
+   аккаунтов Kiro — KiroKey подхватит их все и будет ротировать запросы
+   между ними.
+
+2. **Склонируй + запусти** (нужен Node ≥ 20):
+
+   ```bash
+   git clone https://github.com/defomok-max/KiroKey.git
+   cd KiroKey
+   ./start.sh            # Linux / macOS  (или: start.cmd на Windows, или: make start)
+   ```
+
+   В логах увидишь:
+
+   ```
+   kiro-router: starting port=11437 ...
+   accounts: reloaded total=1 ids=[aws-sso:kiro-auth-token]
+   kiro-router: listening url=http://127.0.0.1:11437
+   ```
+
+3. **Укажи в любом OpenAI-совместимом инструменте:**
+
+   - **Base URL**: `http://127.0.0.1:11437/v1`
+   - **API Key**: что угодно (например `kiro`) — прокси по умолчанию слушает
+     только на `127.0.0.1`, поэтому ключ это просто заглушка, если ты не
+     задал `API_KEY=`.
+   - **Model**: `claude-sonnet-4.5` (или `claude-opus-4.7`, `claude-haiku-4.5`, …)
+
+Всё. Проверка:
+
+```bash
+curl http://127.0.0.1:11437/health
+curl http://127.0.0.1:11437/v1/models
+```
+
+---
+
+## Почему это существует
+
+Вдохновлён [diegosouzapw/OmniRoute](https://github.com/diegosouzapw/OmniRoute),
+который покрывает 160+ провайдеров. KiroKey же laser-focused на Kiro и
+быстрее + стабильнее для этого одного use case потому что:
+
+- **ноль runtime-зависимостей** (только Node ≥ 20, ~280 KB после компиляции),
 - **keep-alive HTTPS pooling** к AWS CodeWhisperer — нет TLS handshake на
   каждый запрос,
 - **проактивный refresh токенов** в фоне за ~5 минут до экспирации — первый
@@ -20,23 +65,24 @@ API.** Подключай в OpenCode, Kilo Code, Cline, Continue.dev, Roo Code 
   round-robin / least-used / priority маршрутизацией и **автоматическим
   failover** на 401 / 429 / 5xx.
 
-## Что есть
+## Endpoints
 
-- `POST /v1/chat/completions` — OpenAI-совместимый streaming chat (SSE) и
-  non-streaming JSON
-- `POST /v1/messages` — Anthropic-совместимый Messages API (SSE + не-stream)
-- `GET  /v1/models` — список моделей Claude, доступных через Kiro
-- `GET  /health` — liveness + сводка состояния аккаунтов
-- `GET  /admin/accounts` — полный статус каждого аккаунта (токены замаскированы)
-- `POST /admin/refresh` — форсированный refresh всех аккаунтов
-- `POST /admin/reload` — пересканировать `~/.aws/sso/cache` и подцепить новые аккаунты
-- `POST /admin/accounts/:id/reset` — сбросить cool-down / счётчики ошибок
+| Method | Path                              | Описание                                                  |
+| ------ | --------------------------------- | --------------------------------------------------------- |
+| POST   | `/v1/chat/completions`            | OpenAI Chat Completions (streaming SSE + non-streaming)   |
+| POST   | `/v1/messages`                    | Anthropic Messages API (streaming SSE + non-streaming)    |
+| GET    | `/v1/models`                      | Список моделей Claude через Kiro                          |
+| GET    | `/health`                         | Liveness + сводка по состоянию аккаунтов                  |
+| GET    | `/admin/accounts`                 | Полный статус по каждому аккаунту (токены замаскированы)  |
+| POST   | `/admin/refresh`                  | Форсированный refresh                                     |
+| POST   | `/admin/reload`                   | Пересканировать `~/.aws/sso/cache`                        |
+| POST   | `/admin/accounts/:id/reset`       | Сбросить cool-down / счётчики ошибок                      |
 
-Поддерживаемые модели (проксируются в AWS CodeWhisperer):
+Поддерживаемые модели:
 
 | Model id              | Заметки                                |
 | --------------------- | -------------------------------------- |
-| `claude-sonnet-4.5`   | Дефолт, быстрая + способная            |
+| `claude-sonnet-4.5`   | Дефолт, быстрая и способная            |
 | `claude-sonnet-4.6`   | Более свежая Sonnet                    |
 | `claude-haiku-4.5`    | Самая быстрая / дешёвая                |
 | `claude-opus-4.6`     | Максимальное качество                  |
@@ -45,17 +91,28 @@ API.** Подключай в OpenCode, Kilo Code, Cline, Continue.dev, Roo Code 
 ## Установка
 
 ```bash
-git clone <этот репо> kiro-router
-cd kiro-router
+git clone https://github.com/defomok-max/KiroKey.git
+cd KiroKey
 npm install
 ```
 
-Нужен Node ≥ 20.
+Нужен Node ≥ 20. После `npm install`:
+
+| Команда             | Что делает                                          |
+| ------------------- | --------------------------------------------------- |
+| `./start.sh`        | Ставит зависимости (если нужно) + запускает (Linux/Mac) |
+| `start.cmd`         | То же самое на Windows                              |
+| `make start`        | То же через Make                                    |
+| `npm start`         | Просто запуск (зависимости уже стоят)               |
+| `npm run dev`       | Запуск с автоперезагрузкой при изменении кода       |
+| `npm run build`     | Скомпилировать TypeScript → `dist/`                 |
+| `npm test`          | Прогнать unit-тесты                                 |
+| `npm run typecheck` | TypeScript проверка без emit                        |
 
 ## Откуда взять токены Kiro
 
 Нужно один раз залогиниться в Kiro IDE, чтобы он сохранил токены в
-`~/.aws/sso/cache/`. Роутер подхватит **все** аккаунты, в которые ты
+`~/.aws/sso/cache/`. KiroKey подхватит **все** аккаунты, в которые ты
 залогинился, и будет ротировать запросы между ними.
 
 - **AWS Builder ID** (бесплатно, рекомендую) — поставь
@@ -68,6 +125,16 @@ npm install
 `~/.aws/sso/cache/kiro-auth-token.json` с `refreshToken`, начинающимся с
 `aorAAAAAG`. Роутер автоматически их найдёт.
 
+### Добавить ещё один аккаунт
+
+Просто залогинься в Kiro IDE с другим аккаунтом (или скопируй второй JSON
+в `~/.aws/sso/cache/`). KiroKey подхватит его **без рестарта** благодаря
+filesystem watching. Проверка:
+
+```bash
+curl http://127.0.0.1:11437/admin/accounts | jq
+```
+
 ### Headless / Docker / удалённая машина
 
 Если на сервере нельзя запустить Kiro IDE, скопируй `refreshToken` из
@@ -75,46 +142,64 @@ npm install
 
 ```bash
 export KIRO_REFRESH_TOKEN="aorAAAAAG..."
+./start.sh
 ```
 
 Роутер использует этот единственный аккаунт.
 
-## Запуск
+## Запуск как сервиса (опционально)
+
+**systemd (Linux):**
 
 ```bash
-# foreground
-npm start
+mkdir -p ~/.config/systemd/user
+cat > ~/.config/systemd/user/kiro-router.service <<EOF
+[Unit]
+Description=kiro-router
+After=network.target
 
-# dev с автоперезагрузкой
-npm run dev
+[Service]
+ExecStart=$(which npm) start
+WorkingDirectory=$PWD
+Restart=on-failure
+RestartSec=5
 
-# production build
-npm run build && node dist/server.js
+[Install]
+WantedBy=default.target
+EOF
+
+systemctl --user enable --now kiro-router
+systemctl --user status kiro-router
 ```
 
-Слушает на `http://127.0.0.1:11437` по умолчанию.
+**pm2 (любая ОС):**
 
 ```bash
-curl http://127.0.0.1:11437/health
-curl http://127.0.0.1:11437/admin/accounts | jq
+npm install -g pm2
+pm2 start "npm start" --name kiro-router
+pm2 save
+pm2 startup   # выполни выведенную команду
 ```
+
+**Windows** — проще всего запускать `start.cmd` в окне терминала, или
+поставить `pm2-windows-service` для нормального сервиса.
 
 ## Конфигурация
 
 Все настройки — через переменные окружения. Скопируй `.env.example` и
 `source .env`, или экспортируй вручную.
 
-| Переменная                  | Default                       | Описание                                                       |
-| --------------------------- | ----------------------------- | -------------------------------------------------------------- |
-| `PORT`                      | `11437`                       | HTTP-порт                                                      |
-| `HOST`                      | `127.0.0.1`                   | Bind-адрес                                                     |
-| `API_KEY`                   | _(не задан)_                  | Если задан — клиенты должны слать `Authorization: Bearer <key>` |
-| `KIRO_TOKEN_DIR`            | `~/.aws/sso/cache`            | Где искать JSON-файлы аккаунтов                                |
-| `KIRO_REFRESH_TOKEN`        | _(не задан)_                  | Один override-аккаунт (для headless/Docker)                    |
-| `KIRO_PROFILE_ARN`          | _(не задан)_                  | Profile ARN (для IDC юзеров)                                   |
-| `KIRO_REFRESH_LEAD_SECONDS` | `300`                         | За сколько секунд до экспирации рефрешить токены               |
-| `KIRO_STRATEGY`             | `round-robin`                 | `round-robin` / `least-used` / `priority`                      |
-| `LOG_LEVEL`                 | `info`                        | `error` / `warn` / `info` / `debug`                            |
+| Переменная                  | Default             | Описание                                                       |
+| --------------------------- | ------------------- | -------------------------------------------------------------- |
+| `PORT`                      | `11437`             | HTTP-порт                                                      |
+| `HOST`                      | `127.0.0.1`         | Bind-адрес                                                     |
+| `API_KEY`                   | _(не задан)_        | Если задан — клиенты должны слать `Authorization: Bearer <key>` |
+| `KIRO_TOKEN_DIR`            | `~/.aws/sso/cache`  | Где искать JSON-файлы аккаунтов                                |
+| `KIRO_REFRESH_TOKEN`        | _(не задан)_        | Один override-аккаунт (для headless/Docker)                    |
+| `KIRO_PROFILE_ARN`          | _(не задан)_        | Profile ARN (для IDC юзеров)                                   |
+| `KIRO_REFRESH_LEAD_SECONDS` | `300`               | За сколько секунд до экспирации рефрешить токены               |
+| `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                      |
+| `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                            |
 
 ## Подключение
 
@@ -123,7 +208,7 @@ curl http://127.0.0.1:11437/admin/accounts | jq
 ```bash
 opencode --provider=openai \
   --openai-base-url=http://127.0.0.1:11437/v1 \
-  --openai-api-key=$API_KEY \   # любое значение, если API_KEY не задан
+  --openai-api-key=kiro \
   --model=claude-sonnet-4.5
 ```
 
@@ -149,7 +234,7 @@ opencode --provider=openai \
 
 Settings → API Provider → **OpenAI Compatible**
 - Base URL: `http://127.0.0.1:11437/v1`
-- API Key: любой (или твой `API_KEY`)
+- API Key: любой
 - Model ID: `claude-sonnet-4.5`
 
 ### Roo Code
@@ -211,8 +296,7 @@ curl -s http://127.0.0.1:11437/health
 # {"status":"ok","accounts":{"total":3,"healthy":2,"cooling":1,...}}
 ```
 
-Подключай к systemd / Docker / k8s — `status: "degraded"` означает, что нет
-ни одного рабочего аккаунта.
+`status: "degraded"` означает, что нет ни одного рабочего аккаунта.
 
 ## Сборка из исходников
 
@@ -232,6 +316,17 @@ node dist/server.js
 - Токены хранятся в `~/.kiro-router/accounts.json` с правами `0600` и
   никогда не пишутся в логи (admin-endpoints их маскируют).
 - Не коммить `.env` и `accounts.json` в git.
+
+## Troubleshooting
+
+| Симптом                                                | Скорее всего / как починить                                                                              |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `accounts: reloaded total=0`                           | Нет токенов Kiro. Залогинься в Kiro IDE; проверь `ls ~/.aws/sso/cache/`.                                 |
+| `No Kiro accounts configured`                          | То же.                                                                                                   |
+| `refresh failed: status=400` (terminal)                | Refresh-токен мёртв. Перелогинься в Kiro IDE.                                                            |
+| `429` после нескольких запросов                        | Все аккаунты упёрлись в rate limit. Добавь ещё один Kiro-аккаунт или подожди пока cool-down пройдёт.     |
+| Инструменты не подключаются к `127.0.0.1:11437`        | Сервер не запущен (`npm start`), другой порт (`PORT=`) или `HOST=0.0.0.0` с фаерволом.                   |
+| `Unauthorized` от KiroKey                              | Ты задал `API_KEY=`, а клиент не шлёт `Authorization: Bearer <key>` с тем же значением.                  |
 
 ## Лицензия
 
