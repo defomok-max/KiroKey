@@ -23,6 +23,8 @@
  */
 
 const CRC32_TABLE = new Uint32Array(256);
+const MIN_FRAME_LENGTH = 16;
+const MAX_FRAME_LENGTH = 24 * 1024 * 1024;
 for (let i = 0; i < 256; i++) {
   let c = i >>> 0;
   for (let j = 0; j < 8; j++) {
@@ -108,13 +110,14 @@ export class ByteQueue {
  * Returns null on CRC mismatch (caller may log and skip).
  */
 export function parseEventFrame(data: Uint8Array): EventFrame | null {
-  if (data.length < 16) return null;
+  if (data.length < MIN_FRAME_LENGTH || data.length > MAX_FRAME_LENGTH) return null;
 
   const view = new DataView(data.buffer, data.byteOffset, data.length);
   const totalLength = view.getUint32(0, false);
   const headersLength = view.getUint32(4, false);
   if (totalLength !== data.length) return null;
-  if (headersLength > totalLength - 16) return null;
+  if (totalLength < MIN_FRAME_LENGTH || totalLength > MAX_FRAME_LENGTH) return null;
+  if (headersLength > totalLength - MIN_FRAME_LENGTH) return null;
 
   // Prelude CRC covers bytes [0..8).
   const preludeCRC = view.getUint32(8, false);
@@ -187,10 +190,15 @@ function utf8(bytes: Uint8Array): string {
 export function drainFrames(queue: ByteQueue, onBadFrame?: () => void): EventFrame[] {
   const frames: EventFrame[] = [];
   let safety = 0;
-  while (queue.length >= 16) {
+  while (queue.length >= MIN_FRAME_LENGTH) {
     if (++safety > 100_000) break;
     const totalLength = queue.peekUint32BE(0);
-    if (!totalLength || totalLength < 16 || totalLength > queue.length) break;
+    if (!totalLength || totalLength < MIN_FRAME_LENGTH || totalLength > MAX_FRAME_LENGTH) {
+      queue.read(1);
+      onBadFrame?.();
+      continue;
+    }
+    if (totalLength > queue.length) break;
     const data = queue.read(totalLength);
     if (!data) break;
     const frame = parseEventFrame(data);

@@ -15,6 +15,7 @@ import { AccountManager, type RoutingStrategy } from "./kiro/accountManager.js";
 import { warmUpstream } from "./kiro/client.js";
 import {
   getAuthBearer,
+  authTokenMatches,
   handleCorsPreflight,
   sendError,
   sendJson,
@@ -45,6 +46,7 @@ async function main() {
     password: passwordSource,
     tokenDir: cfg.kiroTokenDir,
     refreshLead: cfg.refreshLeadSeconds,
+    serverMode: cfg.serverMode,
   });
 
   // Loud banner when bound to all interfaces without auth — anyone who can
@@ -72,7 +74,19 @@ async function main() {
     });
   }
 
-  const strategy = (process.env.KIRO_STRATEGY as RoutingStrategy) || "round-robin";
+  if (cfg.serverMode && !cfg.apiKey) {
+    log.error("kiro-router: API_KEY is required when KIRO_SERVER_MODE=1");
+    process.exit(1);
+  }
+
+  const strategyRaw = (process.env.KIRO_STRATEGY || "round-robin").trim().toLowerCase();
+  const strategy: RoutingStrategy =
+    strategyRaw === "round-robin" || strategyRaw === "least-used" || strategyRaw === "priority"
+      ? strategyRaw
+      : "round-robin";
+  if (strategy !== strategyRaw) {
+    log.warn("kiro-router: invalid KIRO_STRATEGY, using round-robin", { value: strategyRaw });
+  }
   const manager = new AccountManager({
     cacheDir: cfg.kiroTokenDir,
     overrideRefreshToken: cfg.kiroRefreshToken,
@@ -133,7 +147,10 @@ async function main() {
     });
   });
 
+  let shuttingDown = false;
   const shutdown = async (sig: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info("server: shutting down", { signal: sig });
     await manager.stop();
     server.close(() => process.exit(0));
@@ -170,7 +187,7 @@ async function handle(
   // Auth check for everything else.
   if (apiKey) {
     const presented = getAuthBearer(req);
-    if (presented !== apiKey) {
+    if (!authTokenMatches(presented, apiKey)) {
       return sendError(res, 401, "unauthorized", "invalid or missing API key");
     }
   }
@@ -195,7 +212,11 @@ async function handle(
   }
   const resetMatch = /^\/admin\/accounts\/([^/]+)\/reset$/.exec(path);
   if (resetMatch && method === "POST") {
-    return handleReset(req, res, manager, decodeURIComponent(resetMatch[1]));
+    try {
+      return handleReset(req, res, manager, decodeURIComponent(resetMatch[1]));
+    } catch {
+      return sendError(res, 400, "invalid_request", "invalid account id encoding");
+    }
   }
 
   sendError(res, 404, "not_found", `no route for ${method} ${path}`);

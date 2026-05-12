@@ -127,13 +127,15 @@ cd KiroKey
 npm install
 ```
 
-Нужен Node ≥ 20. После `npm install`:
+Нужен Node ≥ 20. В CI или чистой автоматизации используй `npm ci`, когда есть
+`package-lock.json`. После установки зависимостей:
 
 | Команда             | Что делает                                          |
 | ------------------- | --------------------------------------------------- |
 | `./start.sh`        | Ставит зависимости (если нужно) + запускает (Linux/Mac) |
 | `start.cmd`         | То же самое на Windows                              |
 | `make start`        | То же через Make                                    |
+| `npm run check` / `make check` | Typecheck, тесты, build, lint placeholder, package dry-run |
 | `npm start`         | Просто запуск (зависимости уже стоят)               |
 | `npm run dev`       | Запуск с автоперезагрузкой при изменении кода       |
 | `npm run build`     | Скомпилировать TypeScript → `dist/`                 |
@@ -166,7 +168,7 @@ filesystem watching. Проверка:
 curl http://127.0.0.1:11437/admin/accounts | jq
 ```
 
-### Headless / Docker / удалённая машина
+### Сервер / Docker / удалённая машина
 
 Если на сервере нельзя запустить Kiro IDE, скопируй `refreshToken` из
 `~/.aws/sso/cache/kiro-auth-token.json` на своём ноуте и задай:
@@ -178,9 +180,35 @@ export KIRO_REFRESH_TOKEN="aorAAAAAG..."
 
 Роутер использует этот единственный аккаунт.
 
+Для нормального запуска на сервере используй готовый Docker Compose или
+systemd setup:
+
+```bash
+cp deploy/kiro-router.env.example .env
+$EDITOR .env
+docker compose up -d --build
+```
+
+В примере `API_KEY` специально пустой: задай его перед стартом, иначе Docker
+Compose остановится с ошибкой.
+
+Или как Linux systemd service:
+
+```bash
+sudo sh deploy/install-systemd.sh
+sudoedit /etc/kiro-router.env
+sudo systemctl start kiro-router
+```
+
+Полная инструкция для VPS/сервера: [docs/server.md](docs/server.md).
+
 ## Запуск как сервиса (опционально)
 
-**systemd (Linux):**
+Для реального VPS/сервера лучше использовать [docs/server.md](docs/server.md):
+там есть Docker Compose и hardened systemd service. Пример ниже — быстрый
+per-user local service.
+
+**systemd user service (Linux):**
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -230,6 +258,7 @@ pm2 startup   # выполни выведенную команду
 | `KIRO_PROFILE_ARN`          | _(не задан)_        | Profile ARN (для IDC юзеров)                                   |
 | `KIRO_REFRESH_LEAD_SECONDS` | `300`               | За сколько секунд до экспирации рефрешить токены               |
 | `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                      |
+| `KIRO_SERVER_MODE`          | `false`             | Требует `API_KEY` и включает server-safe token dir defaults     |
 | `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                            |
 
 ## Подключение
@@ -332,10 +361,12 @@ curl -s http://127.0.0.1:11437/health
 ## Сборка из исходников
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm test
 npm run build
+npm run lint
+npm pack --dry-run
 node dist/server.js
 ```
 
@@ -349,6 +380,7 @@ node dist/server.js
   (`~/.kiro-router/accounts.json`) хранятся с правами `0600` и никогда не
   пишутся в логи. Admin-endpoints маскируют токены.
 - Не коммить `.env` и содержимое `~/.kiro-router/` в git.
+- См. [SECURITY.md](SECURITY.md) для vulnerability reporting и server hardening.
 
 ## Troubleshooting
 

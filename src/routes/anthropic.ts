@@ -26,7 +26,7 @@ import type {
   OpenAITool,
 } from "../kiro/request.js";
 import type { OpenAIChatCompletion } from "../kiro/response.js";
-import { readJson, sendError, sendJson, sendSseStream } from "../http/util.js";
+import { HttpRequestError, readJson, sendError, sendJson, sendSseStream } from "../http/util.js";
 import { KIRO_MODELS } from "../kiro/types.js";
 
 interface AnthropicMessagesRequest {
@@ -163,7 +163,7 @@ interface OpenAIDeltaChunk {
  * Convert an OpenAI SSE stream (Buffer chunks) into an Anthropic Messages
  * SSE stream. Returns a Node Readable yielding Buffers.
  */
-function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: string): Readable {
+export function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: string): Readable {
   return Readable.from(
     (async function* (): AsyncIterable<Buffer> {
       let textIndex = -1;
@@ -178,6 +178,20 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
         Buffer.from(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
 
       const messageId = `msg_${requestId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 24)}`;
+      const messageStart = () =>
+        sseEvent("message_start", {
+          type: "message_start",
+          message: {
+            id: messageId,
+            type: "message",
+            role: "assistant",
+            model,
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          },
+        });
 
       let buffered = "";
       const decoder = new TextDecoder();
@@ -192,9 +206,11 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
           buffered = buffered.slice(nlIdx + 2);
 
           const lines = rawEvent.split("\n");
-          const dataLine = lines.find((l) => l.startsWith("data: "));
-          if (!dataLine) continue;
-          const data = dataLine.slice(6);
+          const dataLines = lines
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => (l.startsWith("data: ") ? l.slice(6) : l.slice(5)));
+          if (dataLines.length === 0) continue;
+          const data = dataLines.join("\n");
           if (data === "[DONE]") continue;
 
           let parsed: OpenAIDeltaChunk;
@@ -215,19 +231,7 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
 
           if (!messageStarted) {
             messageStarted = true;
-            yield sseEvent("message_start", {
-              type: "message_start",
-              message: {
-                id: messageId,
-                type: "message",
-                role: "assistant",
-                model,
-                content: [],
-                stop_reason: null,
-                stop_sequence: null,
-                usage: { input_tokens: 0, output_tokens: 0 },
-              },
-            });
+            yield messageStart();
           }
 
           for (const choice of parsed.choices) {
@@ -291,6 +295,10 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
         }
       }
 
+      if (!messageStarted) {
+        yield messageStart();
+      }
+
       // Close any open content blocks.
       if (textIndex !== -1) {
         yield sseEvent("content_block_stop", { type: "content_block_stop", index: textIndex });
@@ -315,6 +323,9 @@ function openAiJsonToAnthropicJson(j: OpenAIChatCompletion, model: string, messa
   const msg = choice?.message;
   if (msg?.content && typeof msg.content === "string") {
     content.push({ type: "text", text: msg.content });
+  }
+  if (msg?.content === null) {
+    content.push({ type: "text", text: "" });
   }
   if (msg?.tool_calls?.length) {
     for (const tc of msg.tool_calls) {
@@ -355,6 +366,9 @@ export async function handleMessages(
   try {
     body = (await readJson(req)) as AnthropicMessagesRequest;
   } catch (err) {
+    if (err instanceof HttpRequestError) {
+      return sendError(res, err.status, err.code, err.message);
+    }
     return sendError(res, 400, "invalid_request", (err as Error).message);
   }
   if (!body || !body.model || !Array.isArray(body.messages)) {

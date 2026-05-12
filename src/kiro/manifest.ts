@@ -4,7 +4,7 @@
  * see a torn file.
  */
 
-import { readFile, writeFile, mkdir, rename, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, readdir, stat, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
@@ -22,9 +22,10 @@ interface ManifestFile {
 }
 
 export async function ensureManifestDir(): Promise<void> {
-  if (!existsSync(MANIFEST_DIR)) {
-    await mkdir(MANIFEST_DIR, { recursive: true });
-  }
+  await mkdir(MANIFEST_DIR, { recursive: true, mode: 0o700 });
+  await chmod(MANIFEST_DIR, 0o700).catch((err) =>
+    log.debug("manifest: chmod failed", { path: MANIFEST_DIR, err: (err as Error).message })
+  );
 }
 
 export async function loadManifest(): Promise<KiroAccount[]> {
@@ -48,32 +49,53 @@ export async function loadManifest(): Promise<KiroAccount[]> {
 
 export async function saveManifest(accounts: KiroAccount[]): Promise<void> {
   await ensureManifestDir();
-  const payload: ManifestFile = { version: 1, accounts };
+  const payload: ManifestFile = { version: 1, accounts: accounts.map(sanitizeForManifest) };
   const tmp = `${MANIFEST_PATH}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(tmp, JSON.stringify(payload, null, 2), { mode: 0o600 });
   await rename(tmp, MANIFEST_PATH);
+  await chmod(MANIFEST_PATH, 0o600).catch((err) =>
+    log.debug("manifest: chmod failed", { path: MANIFEST_PATH, err: (err as Error).message })
+  );
+}
+
+function sanitizeForManifest(account: KiroAccount): KiroAccount {
+  return {
+    ...account,
+    lastError:
+      account.lastError
+        ?.replace(/aorAAAAAG[A-Za-z0-9._-]+/g, "[redacted-refresh-token]")
+        .replace(/eyJ[A-Za-z0-9._-]+/g, "[redacted-jwt]") ?? null,
+  };
 }
 
 function normalizeAccount(a: Partial<KiroAccount>): KiroAccount {
+  const state =
+    a.state === "healthy" ||
+    a.state === "refreshing" ||
+    a.state === "cooling" ||
+    a.state === "expired" ||
+    a.state === "terminal"
+      ? a.state
+      : "healthy";
   return {
     id: a.id || randomUUID(),
     label: a.label || a.id || "unnamed",
     authMethod: a.authMethod || "builder-id",
     refreshToken: a.refreshToken || "",
     accessToken: a.accessToken ?? null,
-    expiresAt: typeof a.expiresAt === "number" ? a.expiresAt : 0,
+    expiresAt: typeof a.expiresAt === "number" && Number.isFinite(a.expiresAt) ? Math.max(0, a.expiresAt) : 0,
     region: a.region || "us-east-1",
     clientId: a.clientId ?? null,
     clientSecret: a.clientSecret ?? null,
     profileArn: a.profileArn ?? null,
     sourcePath: a.sourcePath ?? null,
-    state: a.state || "healthy",
+    state,
     lastError: a.lastError ?? null,
-    coolingUntil: a.coolingUntil ?? 0,
-    failureCount: a.failureCount ?? 0,
-    requestCount: a.requestCount ?? 0,
-    successCount: a.successCount ?? 0,
-    priority: typeof a.priority === "number" ? a.priority : 100,
+    coolingUntil: typeof a.coolingUntil === "number" && Number.isFinite(a.coolingUntil) ? Math.max(0, a.coolingUntil) : 0,
+    failureCount: typeof a.failureCount === "number" && Number.isFinite(a.failureCount) ? Math.max(0, a.failureCount) : 0,
+    requestCount: typeof a.requestCount === "number" && Number.isFinite(a.requestCount) ? Math.max(0, a.requestCount) : 0,
+    successCount: typeof a.successCount === "number" && Number.isFinite(a.successCount) ? Math.max(0, a.successCount) : 0,
+    priority: typeof a.priority === "number" && Number.isFinite(a.priority) ? a.priority : 100,
     disabled: !!a.disabled,
   };
 }
@@ -104,9 +126,11 @@ export async function discoverFromAwsSsoCache(cacheDir: string): Promise<KiroAcc
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     const fullPath = join(cacheDir, entry);
+    let observedAtMs = Date.now();
     try {
       const s = await stat(fullPath);
       if (!s.isFile()) continue;
+      observedAtMs = s.mtimeMs;
     } catch {
       continue;
     }
@@ -123,7 +147,7 @@ export async function discoverFromAwsSsoCache(cacheDir: string): Promise<KiroAcc
           authMethod: data.clientId && data.clientSecret ? "builder-id" : "social",
           refreshToken: rt,
           accessToken: typeof data.accessToken === "string" ? data.accessToken : null,
-          expiresAt: parseExpiresAt(data),
+          expiresAt: parseExpiresAt(data, observedAtMs),
           region: typeof data.region === "string" ? data.region : "us-east-1",
           clientId: typeof data.clientId === "string" ? data.clientId : null,
           clientSecret: typeof data.clientSecret === "string" ? data.clientSecret : null,
@@ -172,13 +196,16 @@ function tryExtractEmailFromJwt(token: string): string | null {
   }
 }
 
-function parseExpiresAt(data: Record<string, unknown>): number {
+function parseExpiresAt(data: Record<string, unknown>, observedAtMs: number): number {
   if (typeof data.expiresAt === "string") {
     const parsed = Date.parse(data.expiresAt);
     if (Number.isFinite(parsed)) return parsed;
   }
-  if (typeof data.expiresIn === "number" && typeof data.registrationExpiresAt === "string") {
-    // Fallback heuristic; rare.
+  if (typeof data.expiresAt === "number" && Number.isFinite(data.expiresAt)) {
+    return data.expiresAt < 10_000_000_000 ? data.expiresAt * 1000 : data.expiresAt;
+  }
+  if (typeof data.expiresIn === "number" && Number.isFinite(data.expiresIn)) {
+    return observedAtMs + data.expiresIn * 1000;
   }
   return 0;
 }

@@ -1,0 +1,34 @@
+services:
+  kiro-router:
+    build: .
+    image: kiro-router:local
+    restart: unless-stopped
+    ports:
+      - "${PORT:-11437}:11437"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 11437
+      KIRO_SERVER_MODE: 1
+      API_KEY: ${API_KEY:?Set API_KEY in .env before starting docker compose}
+      KIRO_REFRESH_TOKEN: ${KIRO_REFRESH_TOKEN:-}
+      KIRO_PROFILE_ARN: ${KIRO_PROFILE_ARN:-}
+      KIRO_REFRESH_LEAD_SECONDS: ${KIRO_REFRESH_LEAD_SECONDS:-300}
+      KIRO_STRATEGY: ${KIRO_STRATEGY:-round-robin}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - kiro-router-data:/home/kiro/.kiro-router
+      - type: bind
+        source: ${KIRO_TOKEN_DIR:-./server-data/aws-sso-cache}
+        target: /data/aws-sso-cache
+        read_only: true
+        bind:
+          create_host_path: true
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:11437/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  kiro-router-data:

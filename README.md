@@ -125,13 +125,16 @@ cd KiroKey
 npm install
 ```
 
-Requires Node ≥ 20. Once dependencies are installed, you can:
+Requires Node ≥ 20. Use `npm ci` instead of `npm install` in CI or fresh
+automation when `package-lock.json` is present. Once dependencies are installed,
+you can:
 
 | Command           | What it does                                          |
 | ----------------- | ----------------------------------------------------- |
 | `./start.sh`      | Install deps if needed and start the server (recommended) |
 | `start.cmd`       | Same as above on Windows                              |
 | `make start`      | Same, via Make                                        |
+| `npm run check` / `make check` | Run typecheck, tests, build, lint placeholder, package dry-run |
 | `npm start`       | Just start (assumes deps installed)                   |
 | `npm run dev`     | Start with auto-reload on source changes              |
 | `npm run build`   | Compile TypeScript → `dist/`                          |
@@ -164,7 +167,7 @@ filesystem watching. Verify with:
 curl http://127.0.0.1:11437/admin/accounts | jq
 ```
 
-### Headless / Docker / remote box
+### Server / Docker / remote box
 
 If you can't run Kiro IDE on the same machine, copy the `refreshToken` from
 `~/.aws/sso/cache/kiro-auth-token.json` on your laptop and set:
@@ -176,9 +179,35 @@ export KIRO_REFRESH_TOKEN="aorAAAAAG..."
 
 The router will use that single account.
 
+For production-style server deployment, use the included Docker Compose or
+systemd setup:
+
+```bash
+cp deploy/kiro-router.env.example .env
+$EDITOR .env
+docker compose up -d --build
+```
+
+The example leaves `API_KEY` blank on purpose; set it before starting or Docker
+Compose will fail fast.
+
+Or install as a Linux systemd service:
+
+```bash
+sudo sh deploy/install-systemd.sh
+sudoedit /etc/kiro-router.env
+sudo systemctl start kiro-router
+```
+
+See [docs/server.md](docs/server.md) for the full VPS/server guide.
+
 ## Run forever (optional)
 
-**systemd (Linux):**
+For a real VPS/server, prefer [docs/server.md](docs/server.md): it includes
+Docker Compose and a hardened systemd service. The snippet below is only a quick
+per-user local service.
+
+**systemd user service (Linux):**
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -228,6 +257,7 @@ or export them directly.
 | `KIRO_PROFILE_ARN`          | _(unset)_           | Profile ARN for IDC users                                |
 | `KIRO_REFRESH_LEAD_SECONDS` | `300`               | Refresh tokens this many seconds before expiry           |
 | `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                |
+| `KIRO_SERVER_MODE`          | `false`             | Require `API_KEY` and use server-safe token dir defaults |
 | `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                      |
 
 ## Integration recipes
@@ -373,12 +403,16 @@ means no accounts are usable.
 ## Building from source
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm test
 npm run build
+npm run lint
+npm pack --dry-run
 node dist/server.js
 ```
+
+Commit `package-lock.json` when dependencies change so CI and local installs resolve the same toolchain.
 
 ## Security
 
@@ -389,6 +423,8 @@ node dist/server.js
   (`~/.kiro-router/accounts.json`) are stored with mode `0600` and never
   logged. Admin endpoints redact tokens.
 - Don't commit your `.env` or `~/.kiro-router/` files.
+- See [SECURITY.md](SECURITY.md) for vulnerability reporting and server
+  hardening notes.
 
 ## Troubleshooting
 

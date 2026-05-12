@@ -39,6 +39,7 @@ export interface OpenAIMessage {
 export interface OpenAIContentBlock {
   type: string;
   text?: string;
+  source?: { type?: string; media_type?: string; data?: string };
   content?: string | Array<{ type?: string; text?: string }>;
   tool_use_id?: string;
 }
@@ -189,8 +190,12 @@ function extractText(content: OpenAIMessage["content"]): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter((c) => c?.type === "text" || c?.text)
-    .map((c) => c.text || "")
+    .map((c) => {
+      if (c?.type === "text" || c?.text) return c.text || "";
+      if (c?.type === "image_url" || c?.type === "image") return "[image omitted]";
+      return "";
+    })
+    .filter(Boolean)
     .join("\n");
 }
 

@@ -70,6 +70,10 @@ export class AccountManager {
     };
   }
 
+  private accountRef(accountId: string): KiroAccount | null {
+    return this.accounts.find((a) => a.id === accountId) ?? null;
+  }
+
   /** Load manifest + discover from cache. Starts the background refresher. */
   async start(): Promise<void> {
     await this.reload();
@@ -81,9 +85,7 @@ export class AccountManager {
       );
     }, this.opts.refresherIntervalMs);
     // Don't keep the process alive just for this timer.
-    if (typeof (this.refresherTimer as unknown as { unref?: () => void }).unref === "function") {
-      (this.refresherTimer as unknown as { unref: () => void }).unref();
-    }
+    this.refresherTimer.unref();
 
     // Hot reload: watch the cache dir for changes (added/removed files).
     try {
@@ -115,6 +117,10 @@ export class AccountManager {
       this.watcher.close();
       this.watcher = null;
     }
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+      this.reloadTimer = null;
+    }
   }
 
   private reloadTimer: NodeJS.Timeout | null = null;
@@ -126,6 +132,7 @@ export class AccountManager {
         log.error("reload: failed", { err: (err as Error).message })
       );
     }, 750);
+    this.reloadTimer.unref();
   }
 
   /**
@@ -265,46 +272,73 @@ export class AccountManager {
 
   /** Get a fresh access token for the given account, refreshing if needed. */
   async ensureToken(account: KiroAccount): Promise<string> {
-    if (!isExpiring(account, this.opts.refreshLeadSeconds) && account.accessToken) {
-      return account.accessToken;
+    const current = this.accountRef(account.id);
+    if (!current) {
+      throw new Error(`account ${account.id} no longer exists`);
     }
+    if (!isExpiring(current, this.opts.refreshLeadSeconds) && current.accessToken) {
+      return current.accessToken;
+    }
+    await this.refreshOne(current);
+    if (!current.accessToken) {
+      throw new Error(`account ${current.id} has no access token after refresh`);
+    }
+    return current.accessToken;
+  }
+
+  /** Refresh an account and return the access token stored after refresh. */
+  async refreshAndGetToken(account: KiroAccount): Promise<string> {
     await this.refreshOne(account);
-    if (!account.accessToken) {
+    const current = this.accountRef(account.id);
+    if (!current?.accessToken) {
       throw new Error(`account ${account.id} has no access token after refresh`);
     }
-    return account.accessToken;
+    return current.accessToken;
   }
 
   /** Refresh exactly one account, deduping concurrent callers. */
   async refreshOne(account: KiroAccount): Promise<void> {
-    const existing = this.inflightRefresh.get(account.id);
+    const accountId = account.id;
+    const existing = this.inflightRefresh.get(accountId);
     if (existing) return existing;
 
     const p = (async () => {
-      const previousState = account.state;
-      account.state = "refreshing";
+      let current = this.accountRef(accountId);
+      if (current === null) {
+        throw new Error(`account ${accountId} no longer exists`);
+      }
+      const previousState = current.state;
+      current.state = "refreshing";
       try {
-        const result = await refreshAccount(account);
-        account.accessToken = result.accessToken;
-        account.refreshToken = result.refreshToken;
-        account.expiresAt = Date.now() + result.expiresIn * 1000;
-        if (result.profileArn) account.profileArn = result.profileArn;
-        account.state = "healthy";
-        account.lastError = null;
-        account.failureCount = 0;
+        const result = await refreshAccount(current);
+        current = this.accountRef(accountId);
+        if (current === null) {
+          throw new Error(`account ${accountId} no longer exists`);
+        }
+        current.accessToken = result.accessToken;
+        current.refreshToken = result.refreshToken;
+        current.expiresAt = Date.now() + result.expiresIn * 1000;
+        if (result.profileArn) current.profileArn = result.profileArn;
+        current.state = "healthy";
+        current.lastError = null;
+        current.failureCount = 0;
         log.info("refresh: success", {
-          id: account.id,
+          id: current.id,
           expiresIn: result.expiresIn,
         });
       } catch (err) {
         const e = err as Error;
         const refreshErr = err instanceof RefreshError ? err : null;
-        account.failureCount += 1;
-        account.lastError = e.message;
-        account.state = refreshErr?.terminal ? "terminal" : "expired";
+        const failed = this.accountRef(accountId);
+        if (failed === null) {
+          throw e;
+        }
+        failed.failureCount += 1;
+        failed.lastError = e.message;
+        failed.state = refreshErr?.terminal ? "terminal" : "expired";
         log.error("refresh: failed", {
-          id: account.id,
-          state: account.state,
+          id: failed.id,
+          state: failed.state,
           previousState,
           status: refreshErr?.status,
           err: e.message,
@@ -316,11 +350,11 @@ export class AccountManager {
             log.warn("refresh: persist failed", { err: (err as Error).message })
           );
         }
-        this.inflightRefresh.delete(account.id);
+        this.inflightRefresh.delete(accountId);
       }
     })();
 
-    this.inflightRefresh.set(account.id, p);
+    this.inflightRefresh.set(accountId, p);
     return p;
   }
 
@@ -347,6 +381,11 @@ export class AccountManager {
     a.state = "cooling";
     a.lastError = `cooling ${seconds}s: ${reason}`;
     log.warn("account: cooling", { id: a.id, seconds, reason });
+    if (this.opts.persistOnUpdate) {
+      void saveManifest(this.accounts).catch((err) =>
+        log.warn("account: persist failed", { err: (err as Error).message })
+      );
+    }
   }
 
   /** Reset an account back to healthy (operator action). */
@@ -357,6 +396,11 @@ export class AccountManager {
     a.lastError = null;
     a.coolingUntil = 0;
     a.failureCount = 0;
+    if (this.opts.persistOnUpdate) {
+      void saveManifest(this.accounts).catch((err) =>
+        log.warn("account: persist failed", { err: (err as Error).message })
+      );
+    }
     return true;
   }
 
@@ -364,10 +408,14 @@ export class AccountManager {
   noteSuccess(accountId: string): void {
     const a = this.accounts.find((x) => x.id === accountId);
     if (!a) return;
-    a.requestCount += 1;
     a.successCount += 1;
     if (a.state === "cooling" && a.coolingUntil <= Date.now()) {
       a.state = "healthy";
+    }
+    if (this.opts.persistOnUpdate) {
+      void saveManifest(this.accounts).catch((err) =>
+        log.warn("account: persist failed", { err: (err as Error).message })
+      );
     }
   }
 

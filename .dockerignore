@@ -1,0 +1,12 @@
+.git
+.github
+dist
+node_modules
+npm-debug.log*
+*.tgz
+server-data
+.env
+.env.*
+!.env.example
+.kiro-router
+.aws
