@@ -45,5 +45,13 @@
     "continue.dev",
     "roo"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/defomok-max/KiroKey.git"
+  },
+  "bugs": {
+    "url": "https://github.com/defomok-max/KiroKey/issues"
+  },
+  "homepage": "https://github.com/defomok-max/KiroKey#readme",
   "license": "MIT"
 }

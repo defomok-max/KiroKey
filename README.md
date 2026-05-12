@@ -200,7 +200,11 @@ See [docs/server.md](docs/server.md) for the full VPS/server guide.
 
 ## Run forever (optional)
 
-**systemd (Linux):**
+For a real VPS/server, prefer [docs/server.md](docs/server.md): it includes
+Docker Compose and a hardened systemd service. The snippet below is only a quick
+per-user local service.
+
+**systemd user service (Linux):**
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -415,6 +419,8 @@ Commit `package-lock.json` when dependencies change so CI and local installs res
   (`~/.kiro-router/accounts.json`) are stored with mode `0600` and never
   logged. Admin endpoints redact tokens.
 - Don't commit your `.env` or `~/.kiro-router/` files.
+- See [SECURITY.md](SECURITY.md) for vulnerability reporting and server
+  hardening notes.
 
 ## Troubleshooting
 

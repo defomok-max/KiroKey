@@ -23,8 +23,11 @@ if ! id "$RUN_USER" >/dev/null 2>&1; then
   useradd --system --create-home --home-dir "/var/lib/$RUN_USER" --shell /usr/sbin/nologin "$RUN_USER"
 fi
 
+install -d -m 0755 "$APP_DIR"
+install -d -o "$RUN_USER" -g "$RUN_USER" -m 0700 "/var/lib/$RUN_USER"
+install -d -o "$RUN_USER" -g "$RUN_USER" -m 0700 "/var/lib/$RUN_USER/aws-sso-cache"
 mkdir -p "$APP_DIR"
-tar --exclude .git --exclude node_modules --exclude dist -cf - . | tar -xf - -C "$APP_DIR"
+tar --exclude .git --exclude node_modules --exclude dist --exclude .env --exclude server-data -cf - . | tar -xf - -C "$APP_DIR"
 cd "$APP_DIR"
 
 npm ci
@@ -34,10 +37,10 @@ chown -R "$RUN_USER:$RUN_USER" "$APP_DIR" "/var/lib/$RUN_USER"
 
 if [ ! -f "$ENV_FILE" ]; then
   cp deploy/kiro-router.env.example "$ENV_FILE"
-  chmod 600 "$ENV_FILE"
   echo "Created $ENV_FILE. Edit API_KEY and token settings before starting."
 fi
 chown root:"$RUN_USER" "$ENV_FILE"
+chmod 640 "$ENV_FILE"
 
 cp deploy/kiro-router.service /etc/systemd/system/kiro-router.service
 systemctl daemon-reload

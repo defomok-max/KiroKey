@@ -7,6 +7,14 @@ KiroKey can run on a VPS or home server in two supported ways:
 
 Always set `API_KEY` when binding to `0.0.0.0`.
 
+## Requirements
+
+- Node.js 20+ for systemd installs.
+- Docker with the Compose plugin for Docker installs.
+- A strong `API_KEY`.
+- Either copied Kiro AWS SSO cache files or `KIRO_REFRESH_TOKEN` for headless
+  operation.
+
 ## Docker Compose
 
 ```bash
@@ -70,4 +78,11 @@ git pull
 npm ci
 npm run build
 sudo systemctl restart kiro-router
+```
+
+For Docker Compose:
+
+```bash
+git pull
+docker compose up -d --build
 ```

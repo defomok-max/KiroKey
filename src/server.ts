@@ -40,12 +40,14 @@ async function main() {
       ? "env"
       : "file"
     : "none";
+  const serverMode = process.env.KIRO_SERVER_MODE === "1";
   log.info("kiro-router: starting", {
     port: cfg.port,
     host: cfg.host,
     password: passwordSource,
     tokenDir: cfg.kiroTokenDir,
     refreshLead: cfg.refreshLeadSeconds,
+    serverMode,
   });
 
   // Loud banner when bound to all interfaces without auth — anyone who can
@@ -73,7 +75,19 @@ async function main() {
     });
   }
 
-  const strategy = (process.env.KIRO_STRATEGY as RoutingStrategy) || "round-robin";
+  if (serverMode && !cfg.apiKey) {
+    log.error("kiro-router: API_KEY is required when KIRO_SERVER_MODE=1");
+    process.exit(1);
+  }
+
+  const strategyRaw = process.env.KIRO_STRATEGY || "round-robin";
+  const strategy: RoutingStrategy =
+    strategyRaw === "round-robin" || strategyRaw === "least-used" || strategyRaw === "priority"
+      ? strategyRaw
+      : "round-robin";
+  if (strategy !== strategyRaw) {
+    log.warn("kiro-router: invalid KIRO_STRATEGY, using round-robin", { value: strategyRaw });
+  }
   const manager = new AccountManager({
     cacheDir: cfg.kiroTokenDir,
     overrideRefreshToken: cfg.kiroRefreshToken,

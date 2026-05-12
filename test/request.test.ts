@@ -163,6 +163,21 @@ test("loadConfig uses server defaults without reading local token cache", () => 
   }
 });
 
+test("loadConfig keeps explicit token dir in server mode", () => {
+  const oldServerMode = process.env.KIRO_SERVER_MODE;
+  const oldTokenDir = process.env.KIRO_TOKEN_DIR;
+  try {
+    process.env.KIRO_SERVER_MODE = "true";
+    process.env.KIRO_TOKEN_DIR = "/custom/cache";
+    assert.equal(loadConfig().kiroTokenDir, "/custom/cache");
+  } finally {
+    if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
+    else process.env.KIRO_SERVER_MODE = oldServerMode;
+    if (oldTokenDir === undefined) delete process.env.KIRO_TOKEN_DIR;
+    else process.env.KIRO_TOKEN_DIR = oldTokenDir;
+  }
+});
+
 test("buildKiroPayload preserves image placeholders", () => {
   const payload = buildKiroPayload(
     {

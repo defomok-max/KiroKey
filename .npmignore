@@ -1,5 +1,10 @@
 .github/
 .devin-notes/
+CHANGELOG.md
+CONTRIBUTING.md
+SECURITY.md
+.editorconfig
+.gitattributes
 test/
 server-data/
 docker-compose.yml

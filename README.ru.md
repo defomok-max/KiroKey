@@ -201,7 +201,11 @@ sudo systemctl start kiro-router
 
 ## Запуск как сервиса (опционально)
 
-**systemd (Linux):**
+Для реального VPS/сервера лучше использовать [docs/server.md](docs/server.md):
+там есть Docker Compose и hardened systemd service. Пример ниже — быстрый
+per-user local service.
+
+**systemd user service (Linux):**
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -372,6 +376,7 @@ node dist/server.js
   (`~/.kiro-router/accounts.json`) хранятся с правами `0600` и никогда не
   пишутся в логи. Admin-endpoints маскируют токены.
 - Не коммить `.env` и содержимое `~/.kiro-router/` в git.
+- См. [SECURITY.md](SECURITY.md) для vulnerability reporting и server hardening.
 
 ## Troubleshooting
 
