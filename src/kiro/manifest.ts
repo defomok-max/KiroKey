@@ -139,12 +139,13 @@ export async function discoverFromAwsSsoCache(cacheDir: string): Promise<KiroAcc
       const data = JSON.parse(raw);
       const rt: unknown = data?.refreshToken;
       if (typeof rt !== "string" || !rt.startsWith("aorAAAAAG")) continue;
+      const authMethod = parseAuthMethod(data);
       const id = `aws-sso:${basename(entry, ".json")}`;
       out.push(
         normalizeAccount({
           id,
           label: extractLabel(data) || id,
-          authMethod: data.clientId && data.clientSecret ? "builder-id" : "social",
+          authMethod,
           refreshToken: rt,
           accessToken: typeof data.accessToken === "string" ? data.accessToken : null,
           expiresAt: parseExpiresAt(data, observedAtMs),
@@ -167,9 +168,19 @@ export async function discoverFromAwsSsoCache(cacheDir: string): Promise<KiroAcc
   return out;
 }
 
+function parseAuthMethod(data: Record<string, unknown>): KiroAccount["authMethod"] {
+  const raw = typeof data.authMethod === "string" ? data.authMethod.toLowerCase() : "";
+  if (raw === "builder-id" || raw === "idc" || raw === "social" || raw === "imported") {
+    return raw;
+  }
+  if (data.clientId && data.clientSecret) return "builder-id";
+  return "social";
+}
+
 function extractLabel(data: Record<string, unknown>): string | null {
   if (typeof data.startUrl === "string") return data.startUrl;
   if (typeof data.email === "string") return data.email;
+  if (typeof data.provider === "string") return data.provider;
   if (typeof data.accessToken === "string") {
     const email = tryExtractEmailFromJwt(data.accessToken);
     if (email) return email;

@@ -2,6 +2,7 @@
  * Read-only admin endpoints:
  *   GET  /health            — basic liveness check + account summary
  *   GET  /admin/accounts    — full account state (excluding tokens)
+ *   POST /admin/accounts/link — start browser-based account linking
  *   POST /admin/refresh     — trigger an immediate proactive refresh sweep
  *   POST /admin/reload      — rescan ~/.aws/sso/cache and reload manifest
  *   POST /admin/accounts/:id/reset — clear cooldown / failure state
@@ -10,7 +11,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { AccountManager } from "../kiro/accountManager.js";
-import { sendJson, sendError } from "../http/util.js";
+import { HttpRequestError, readJson, sendJson, sendError } from "../http/util.js";
 
 function redact(token: string | null): string | null {
   if (!token) return null;
@@ -57,6 +58,59 @@ export function handleAccounts(_req: IncomingMessage, res: ServerResponse, manag
     lastError: a.lastError,
   }));
   sendJson(res, 200, { accounts: list });
+}
+
+export async function handleLinkAccount(
+  req: IncomingMessage,
+  res: ServerResponse,
+  manager: AccountManager
+): Promise<void> {
+  let body: unknown;
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    if (err instanceof HttpRequestError) {
+      return sendError(res, err.status, err.code, err.message);
+    }
+    return sendError(res, 400, "invalid_request", (err as Error).message);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return sendError(res, 400, "invalid_request", "expected JSON object");
+  }
+  const data = body as Record<string, unknown>;
+  const method = data.method;
+  if (method !== "google" && method !== "github" && method !== "builder-id" && method !== "idc") {
+    return sendError(res, 400, "invalid_request", "method must be google, github, builder-id, or idc");
+  }
+  const timeoutSec = parseTimeoutSec(data.timeoutSec);
+  if (timeoutSec === null) {
+    return sendError(res, 400, "invalid_request", "timeoutSec must be a positive number");
+  }
+  const account = await manager.link({
+    method,
+    label: typeof data.label === "string" ? data.label : undefined,
+    startUrl: typeof data.startUrl === "string" ? data.startUrl : undefined,
+    region: typeof data.region === "string" ? data.region : undefined,
+    openBrowser: typeof data.openBrowser === "boolean" ? data.openBrowser : true,
+    timeoutMs: timeoutSec === undefined ? undefined : timeoutSec * 1000,
+  });
+  sendJson(res, 201, {
+    account: {
+      id: account.id,
+      label: account.label,
+      authMethod: account.authMethod,
+      state: account.state,
+      region: account.region,
+      sourcePath: account.sourcePath,
+      expiresAt: account.expiresAt ? new Date(account.expiresAt).toISOString() : null,
+    },
+  });
+}
+
+function parseTimeoutSec(value: unknown): number | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
 }
 
 export async function handleRefresh(

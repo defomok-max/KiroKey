@@ -16,6 +16,8 @@ Claude Code — в любой инструмент, который умеет г
    `~/.aws/sso/cache/kiro-auth-token.json`. Можешь логиниться в несколько
    аккаунтов Kiro — KiroKey подхватит их все и будет ротировать запросы
    между ними.
+   Или используй `./start.sh --add-account --google` / `--github` /
+   `--builder-id`: откроется браузер, ты авторизуешься, аккаунт привяжется.
 
 2. **Склонируй + запусти** (нужен Node ≥ 20):
 
@@ -105,6 +107,7 @@ API_KEY=mySecret ./start.sh
 | GET    | `/v1/models`                      | Список моделей Claude через Kiro                          |
 | GET    | `/health`                         | Liveness + сводка по состоянию аккаунтов                  |
 | GET    | `/admin/accounts`                 | Полный статус по каждому аккаунту (токены замаскированы)  |
+| POST   | `/admin/accounts/link`            | Открыть login flow и привязать новый аккаунт              |
 | POST   | `/admin/refresh`                  | Форсированный refresh                                     |
 | POST   | `/admin/reload`                   | Пересканировать `~/.aws/sso/cache`                        |
 | POST   | `/admin/accounts/:id/reset`       | Сбросить cool-down / счётчики ошибок                      |
@@ -136,6 +139,8 @@ npm install
 | `start.cmd`         | То же самое на Windows                              |
 | `make start`        | То же через Make                                    |
 | `npm run check` / `make check` | Typecheck, тесты, build, lint placeholder, package dry-run |
+| `./start.sh --add-account --google` | Открыть браузер и привязать ещё один аккаунт |
+| `npm run add-account -- --google` | То же через npm                               |
 | `npm start`         | Просто запуск (зависимости уже стоят)               |
 | `npm run dev`       | Запуск с автоперезагрузкой при изменении кода       |
 | `npm run build`     | Скомпилировать TypeScript → `dist/`                 |
@@ -144,9 +149,9 @@ npm install
 
 ## Откуда взять токены Kiro
 
-Нужно один раз залогиниться в Kiro IDE, чтобы он сохранил токены в
-`~/.aws/sso/cache/`. KiroKey подхватит **все** аккаунты, в которые ты
-залогинился, и будет ротировать запросы между ними.
+Можно один раз залогиниться в Kiro IDE, чтобы он сохранил токены в
+`~/.aws/sso/cache/`, или привязать аккаунты напрямую из KiroKey. KiroKey
+подхватит **все** аккаунты в этом cache и будет ротировать запросы между ними.
 
 - **AWS Builder ID** (бесплатно, рекомендую) — поставь
   [Kiro IDE](https://kiro.dev), открой, нажми «Sign in with AWS Builder ID».
@@ -158,7 +163,38 @@ npm install
 `~/.aws/sso/cache/kiro-auth-token.json` с `refreshToken`, начинающимся с
 `aorAAAAAG`. Роутер автоматически их найдёт.
 
-### Добавить ещё один аккаунт
+### Привязать аккаунт через браузер
+
+Запускай одну команду на один аккаунт. KiroKey откроет браузер, ты
+авторизуешься, а refresh token сохранится отдельным JSON-файлом аккаунта:
+
+```bash
+npm run add-account -- --google
+npm run add-account -- --github
+npm run add-account -- --builder-id
+npm run add-account -- --idc --start-url https://example.awsapps.com/start --region us-east-1
+```
+
+Полезные флаги: `--label name` для имени аккаунта, `--no-browser` на удалённом
+сервере (выведет URL/code вместо открытия браузера), `--cache-dir PATH` для
+кастомного `KIRO_TOKEN_DIR`. `./start.sh --add-account --google` запускает тот
+же flow, но сначала сам поставит зависимости. Если сервер уже запущен,
+перезагрузи аккаунты:
+
+```bash
+curl -X POST -H "Authorization: Bearer <password>" http://127.0.0.1:11437/admin/reload
+```
+
+То же есть через admin API:
+
+```bash
+curl -X POST http://127.0.0.1:11437/admin/accounts/link \
+  -H "Authorization: Bearer <password>" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"google","label":"work"}'
+```
+
+### Добавить ещё один аккаунт вручную
 
 Просто залогинься в Kiro IDE с другим аккаунтом (или скопируй второй JSON
 в `~/.aws/sso/cache/`). KiroKey подхватит его **без рестарта** благодаря
