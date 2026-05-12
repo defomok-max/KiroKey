@@ -45,3 +45,24 @@ test("discoverFromAwsSsoCache derives expiresAt from expiresIn", async () => {
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("discoverFromAwsSsoCache preserves authMethod from linked account files", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "kiro-cache-"));
+  try {
+    await writeFile(
+      join(dir, "linked-google.json"),
+      JSON.stringify({
+        refreshToken: "aorAAAAAG-linked-token",
+        accessToken: "header.payload.sig",
+        authMethod: "social",
+        provider: "Google",
+      })
+    );
+    const accounts = await discoverFromAwsSsoCache(dir);
+    assert.equal(accounts.length, 1);
+    assert.equal(accounts[0].authMethod, "social");
+    assert.equal(accounts[0].label, "Google");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});

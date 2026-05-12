@@ -56,6 +56,7 @@ export async function refreshAccount(account: KiroAccount): Promise<RefreshResul
         clientSecret: account.clientSecret,
         refreshToken: account.refreshToken,
         grantType: "refresh_token",
+        ...(account.authMethod === "idc" ? { scope: ["openid"] } : {}),
       }),
     });
     if (!res.ok) {

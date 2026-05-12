@@ -12,8 +12,8 @@ Always set `API_KEY` when binding to `0.0.0.0`.
 - Node.js 20+ for systemd installs.
 - Docker with the Compose plugin for Docker installs.
 - A strong `API_KEY`.
-- Either copied Kiro AWS SSO cache files or `KIRO_REFRESH_TOKEN` for headless
-  operation.
+- Kiro account tokens linked with `npm run add-account`, copied Kiro AWS SSO
+  cache files, or `KIRO_REFRESH_TOKEN` for headless operation.
 
 ## Docker Compose
 
@@ -29,9 +29,11 @@ docker compose logs -f kiro-router
 `API_KEY` is intentionally blank in the example file. Compose and systemd will
 refuse to start until you set it.
 
-For a headless server, set `KIRO_REFRESH_TOKEN` in `.env`. If you copied Kiro's
-AWS SSO JSON files to the server, place them in `./server-data/aws-sso-cache` or
-set `KIRO_TOKEN_DIR=/absolute/path/to/cache` before running Compose.
+For a headless server, set `KIRO_REFRESH_TOKEN` in `.env`. If you linked
+accounts with `npm run add-account -- --no-browser --cache-dir ./server-data/aws-sso-cache`
+or copied Kiro's AWS SSO JSON files to the server, place them in
+`./server-data/aws-sso-cache` or set `KIRO_TOKEN_DIR=/absolute/path/to/cache`
+before running Compose.
 Compose creates the default local cache directory automatically if it is missing.
 
 Health check:
@@ -39,6 +41,25 @@ Health check:
 ```bash
 curl -H "Authorization: Bearer $API_KEY" http://127.0.0.1:11437/v1/models
 curl http://127.0.0.1:11437/health
+```
+
+## Linking accounts on a server
+
+You can add accounts without installing Kiro IDE on the server:
+
+```bash
+npm run add-account -- --builder-id --no-browser --cache-dir ./server-data/aws-sso-cache
+npm run add-account -- --google --no-browser --cache-dir ./server-data/aws-sso-cache
+npm run add-account -- --github --no-browser --cache-dir ./server-data/aws-sso-cache
+npm run add-account -- --idc --start-url https://example.awsapps.com/start --region us-east-1 --no-browser --cache-dir ./server-data/aws-sso-cache
+```
+
+Open the printed URL in any browser, authorize the account, then restart the
+service or call `POST /admin/reload`. For systemd, use:
+
+```bash
+sudo -u kiro-router -H node /opt/KiroKey/dist/addAccount.js --builder-id --no-browser --cache-dir /var/lib/kiro-router/aws-sso-cache
+sudo systemctl restart kiro-router
 ```
 
 ## systemd

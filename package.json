@@ -4,7 +4,8 @@
   "description": "Fast, focused OpenAI/Anthropic-compatible proxy for the Kiro IDE subscription. Use Claude via Kiro from OpenCode, Kilo Code, Cline, Continue, Roo, etc.",
   "type": "module",
   "bin": {
-    "kiro-router": "./dist/server.js"
+    "kiro-router": "./dist/server.js",
+    "kiro-router-add-account": "./dist/addAccount.js"
   },
   "main": "./dist/server.js",
   "scripts": {
@@ -17,6 +18,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'no lint configured (kept dependency-light)'",
     "check": "npm run typecheck && npm test && npm run build && npm run lint && npm pack --dry-run",
+    "add-account": "tsx src/addAccount.ts",
     "set-password": "tsx scripts/setPassword.ts",
     "clear-password": "tsx scripts/setPassword.ts --clear",
     "show-password": "tsx scripts/setPassword.ts --show"

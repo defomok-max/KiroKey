@@ -22,6 +22,7 @@ import { setInterval as nodeSetInterval, clearInterval as nodeClearInterval } fr
 import { log } from "../logger.js";
 import { isExpiring, refreshAccount, RefreshError } from "./auth.js";
 import { discoverFromAwsSsoCache, loadManifest, saveManifest } from "./manifest.js";
+import { linkAccount, type LinkAccountOptions } from "./linkAccount.js";
 import type { KiroAccount } from "./types.js";
 
 export type RoutingStrategy = "round-robin" | "least-used" | "priority";
@@ -223,6 +224,12 @@ export class AccountManager {
   /** Snapshot of current accounts (defensive copy). */
   list(): KiroAccount[] {
     return this.accounts.map((a) => ({ ...a }));
+  }
+
+  async link(options: Omit<LinkAccountOptions, "cacheDir">): Promise<KiroAccount> {
+    const result = await linkAccount({ ...options, cacheDir: this.opts.cacheDir });
+    await this.reload();
+    return result.account;
   }
 
   isReady(): boolean {

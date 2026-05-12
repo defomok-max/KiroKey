@@ -26,6 +26,7 @@ import { handleMessages } from "./routes/anthropic.js";
 import {
   handleAccounts,
   handleHealth,
+  handleLinkAccount,
   handleRefresh,
   handleReload,
   handleReset,
@@ -140,6 +141,7 @@ async function main() {
         "POST /v1/chat/completions",
         "POST /v1/messages",
         "GET  /admin/accounts",
+        "POST /admin/accounts/link",
         "POST /admin/refresh",
         "POST /admin/reload",
         "POST /admin/accounts/:id/reset",
@@ -180,7 +182,7 @@ async function handle(
     return sendText(
       res,
       200,
-      "kiro-router — see /health, /v1/models, /v1/chat/completions, /v1/messages, /admin/accounts"
+      "kiro-router — see /health, /v1/models, /v1/chat/completions, /v1/messages, /admin/accounts, /admin/accounts/link"
     );
   }
 
@@ -203,6 +205,9 @@ async function handle(
   }
   if (path === "/admin/accounts" && method === "GET") {
     return handleAccounts(req, res, manager);
+  }
+  if (path === "/admin/accounts/link" && method === "POST") {
+    return handleLinkAccount(req, res, manager);
   }
   if (path === "/admin/refresh" && method === "POST") {
     return handleRefresh(req, res, manager);
