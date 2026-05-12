@@ -36,7 +36,7 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
   exit 1
 fi
 
-if [ ! -d node_modules ] || [ package.json -nt node_modules ]; then
+if [ ! -d node_modules ] || [ package.json -nt node_modules ] || { [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; }; then
   echo "[kiro-router] installing dependencies (one-time)..."
   npm install --silent --no-audit --no-fund
 fi

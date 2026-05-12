@@ -117,6 +117,10 @@ export class AccountManager {
       this.watcher.close();
       this.watcher = null;
     }
+    if (this.reloadTimer) {
+      clearTimeout(this.reloadTimer);
+      this.reloadTimer = null;
+    }
   }
 
   private reloadTimer: NodeJS.Timeout | null = null;
@@ -128,6 +132,7 @@ export class AccountManager {
         log.error("reload: failed", { err: (err as Error).message })
       );
     }, 750);
+    this.reloadTimer.unref();
   }
 
   /**

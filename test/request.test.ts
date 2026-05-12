@@ -136,3 +136,25 @@ test("loadConfig rejects invalid port and negative refresh lead", () => {
     else process.env.KIRO_REFRESH_LEAD_SECONDS = oldLead;
   }
 });
+
+test("loadConfig rejects partially numeric values", () => {
+  const oldPort = process.env.PORT;
+  try {
+    process.env.PORT = "123abc";
+    assert.equal(loadConfig().port, 11437);
+  } finally {
+    if (oldPort === undefined) delete process.env.PORT;
+    else process.env.PORT = oldPort;
+  }
+});
+
+test("buildKiroPayload preserves image placeholders", () => {
+  const payload = buildKiroPayload(
+    {
+      model: "claude-sonnet-4.5",
+      messages: [{ role: "user", content: [{ type: "image", source: { type: "base64" } }] }],
+    },
+    { model: "claude-sonnet-4.5" }
+  );
+  assert.match(payload.conversationState.currentMessage.userInputMessage.content, /\[image omitted\]$/);
+});

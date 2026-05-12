@@ -30,7 +30,9 @@ export interface Config {
 function num(key: string, fallback: number, opts?: { min?: number; max?: number }): number {
   const raw = process.env[key];
   if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) return fallback;
+  const parsed = Number.parseInt(trimmed, 10);
   if (!Number.isFinite(parsed)) return fallback;
   if (opts?.min !== undefined && parsed < opts.min) return fallback;
   if (opts?.max !== undefined && parsed > opts.max) return fallback;

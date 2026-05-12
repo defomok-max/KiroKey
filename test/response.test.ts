@@ -59,3 +59,18 @@ test("openAiSseToAnthropicSse emits message_start for empty streams", async () =
   assert.ok(out[0].startsWith("event: message_start\n"));
   assert.ok(out.some((event) => event.startsWith("event: message_stop\n")));
 });
+
+test("openAiSseToAnthropicSse parses multiline data events", async () => {
+  const data = JSON.stringify({
+    choices: [{ delta: { content: "hello" }, finish_reason: null }],
+  });
+  const split = Math.floor(data.length / 2);
+  const stream = openAiSseToAnthropicSse(
+    Readable.from([Buffer.from(`data: ${data.slice(0, split)}\ndata: ${data.slice(split)}\n\n`)]),
+    "claude-sonnet-4.5",
+    "multiline"
+  );
+  const out: string[] = [];
+  for await (const chunk of stream) out.push(chunk.toString("utf-8"));
+  assert.ok(out.some((event) => event.includes('"text":"hello"')));
+});

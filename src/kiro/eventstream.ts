@@ -110,13 +110,14 @@ export class ByteQueue {
  * Returns null on CRC mismatch (caller may log and skip).
  */
 export function parseEventFrame(data: Uint8Array): EventFrame | null {
-  if (data.length < 16) return null;
+  if (data.length < MIN_FRAME_LENGTH || data.length > MAX_FRAME_LENGTH) return null;
 
   const view = new DataView(data.buffer, data.byteOffset, data.length);
   const totalLength = view.getUint32(0, false);
   const headersLength = view.getUint32(4, false);
   if (totalLength !== data.length) return null;
-  if (headersLength > totalLength - 16) return null;
+  if (totalLength < MIN_FRAME_LENGTH || totalLength > MAX_FRAME_LENGTH) return null;
+  if (headersLength > totalLength - MIN_FRAME_LENGTH) return null;
 
   // Prelude CRC covers bytes [0..8).
   const preludeCRC = view.getUint32(8, false);

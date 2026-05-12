@@ -196,7 +196,11 @@ async function handle(
   }
   const resetMatch = /^\/admin\/accounts\/([^/]+)\/reset$/.exec(path);
   if (resetMatch && method === "POST") {
-    return handleReset(req, res, manager, decodeURIComponent(resetMatch[1]));
+    try {
+      return handleReset(req, res, manager, decodeURIComponent(resetMatch[1]));
+    } catch {
+      return sendError(res, 400, "invalid_request", "invalid account id encoding");
+    }
   }
 
   sendError(res, 404, "not_found", `no route for ${method} ${path}`);

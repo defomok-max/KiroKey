@@ -19,6 +19,22 @@ import { log } from "../logger.js";
 import type { KiroAccount, RefreshResult } from "./types.js";
 
 const SOCIAL_REFRESH_URL = "https://prod.us-east-1.auth.desktop.kiro.dev/refreshToken";
+const REFRESH_TIMEOUT_MS = 30_000;
+
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), REFRESH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function expiresInSeconds(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 3600;
+  return Math.min(Math.floor(value), 24 * 60 * 60);
+}
 
 export async function refreshAccount(account: KiroAccount): Promise<RefreshResult> {
   if (!account.refreshToken) {
@@ -29,7 +45,7 @@ export async function refreshAccount(account: KiroAccount): Promise<RefreshResul
   if (account.clientId && account.clientSecret) {
     const region = account.region || "us-east-1";
     const url = `https://oidc.${region}.amazonaws.com/token`;
-    const res = await fetch(url, {
+    const res = await fetchWithTimeout(url, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -53,12 +69,12 @@ export async function refreshAccount(account: KiroAccount): Promise<RefreshResul
         typeof data.refreshToken === "string" && data.refreshToken
           ? data.refreshToken
           : account.refreshToken,
-      expiresIn: typeof data.expiresIn === "number" ? data.expiresIn : 3600,
+      expiresIn: expiresInSeconds(data.expiresIn),
     };
   }
 
   // Social/Cognito path.
-  const res = await fetch(SOCIAL_REFRESH_URL, {
+  const res = await fetchWithTimeout(SOCIAL_REFRESH_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -77,7 +93,7 @@ export async function refreshAccount(account: KiroAccount): Promise<RefreshResul
       typeof data.refreshToken === "string" && data.refreshToken
         ? data.refreshToken
         : account.refreshToken,
-    expiresIn: typeof data.expiresIn === "number" ? data.expiresIn : 3600,
+    expiresIn: expiresInSeconds(data.expiresIn),
     profileArn: typeof data.profileArn === "string" ? data.profileArn : undefined,
   };
 }

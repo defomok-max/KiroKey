@@ -39,3 +39,10 @@ test("readJson accepts structured +json content types", async () => {
   );
   assert.deepEqual(parsed, { ok: true });
 });
+
+test("readJson rejects content types that merely contain json text", async () => {
+  await assert.rejects(
+    readJson(req("{}", { "content-type": "text/application-jsonish" })),
+    (err) => err instanceof HttpRequestError && err.status === 415
+  );
+});

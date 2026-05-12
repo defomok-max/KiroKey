@@ -17,6 +17,7 @@
  */
 
 import { Readable } from "node:stream";
+import { randomUUID } from "node:crypto";
 import { ByteQueue, drainFrames, type EventFrame } from "./eventstream.js";
 import { log } from "../logger.js";
 
@@ -47,7 +48,7 @@ export interface StreamState {
 
 function newStreamState(model: string): StreamState {
   return {
-    responseId: `chatcmpl-${Date.now()}-${Math.floor(Math.random() * 1e6).toString(36)}`,
+    responseId: `chatcmpl-${randomUUID()}`,
     created: Math.floor(Date.now() / 1000),
     model,
     chunkIndex: 0,

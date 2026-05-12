@@ -129,6 +129,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       response = await postKiro({ accessToken, payload, signal });
     } catch (err) {
       const e = err as Error;
+      if (signal?.aborted || e.message === "aborted") {
+        throw new DispatchFailure("client aborted request", attempts, 499);
+      }
       log.warn("dispatch: transport error", { id: account.id, err: e.message });
       attempts.push({ accountId: account.id, status: 0, reason: `transport: ${e.message}` });
       manager.cool(account.id, 5, `transport: ${e.message}`);

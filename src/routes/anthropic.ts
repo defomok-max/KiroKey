@@ -206,9 +206,11 @@ export function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requ
           buffered = buffered.slice(nlIdx + 2);
 
           const lines = rawEvent.split("\n");
-          const dataLine = lines.find((l) => l.startsWith("data: "));
-          if (!dataLine) continue;
-          const data = dataLine.slice(6);
+          const dataLines = lines
+            .filter((l) => l.startsWith("data:"))
+            .map((l) => (l.startsWith("data: ") ? l.slice(6) : l.slice(5)));
+          if (dataLines.length === 0) continue;
+          const data = dataLines.join("\n");
           if (data === "[DONE]") continue;
 
           let parsed: OpenAIDeltaChunk;
@@ -321,6 +323,9 @@ function openAiJsonToAnthropicJson(j: OpenAIChatCompletion, model: string, messa
   const msg = choice?.message;
   if (msg?.content && typeof msg.content === "string") {
     content.push({ type: "text", text: msg.content });
+  }
+  if (msg?.content === null) {
+    content.push({ type: "text", text: "" });
   }
   if (msg?.tool_calls?.length) {
     for (const tc of msg.tool_calls) {

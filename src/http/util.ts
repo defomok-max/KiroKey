@@ -55,8 +55,22 @@ export async function readJson(req: IncomingMessage): Promise<unknown> {
   }
 }
 
+function safeJsonStringify(body: unknown): string {
+  try {
+    return JSON.stringify(body);
+  } catch {
+    return JSON.stringify({
+      error: {
+        message: "response could not be serialized",
+        type: "internal_error",
+        code: "internal_error",
+      },
+    });
+  }
+}
+
 export function sendJson(res: ServerResponse, status: number, body: unknown): void {
-  const data = JSON.stringify(body);
+  const data = safeJsonStringify(body);
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(data, "utf-8"),
