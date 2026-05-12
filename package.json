@@ -16,6 +16,7 @@
     "test": "node --import tsx/esm --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'no lint configured (kept dependency-light)'",
+    "check": "npm run typecheck && npm test && npm run build && npm run lint && npm pack --dry-run",
     "set-password": "tsx scripts/setPassword.ts",
     "clear-password": "tsx scripts/setPassword.ts --clear",
     "show-password": "tsx scripts/setPassword.ts --show"

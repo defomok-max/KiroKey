@@ -125,13 +125,16 @@ cd KiroKey
 npm install
 ```
 
-Requires Node ≥ 20. Once dependencies are installed, you can:
+Requires Node ≥ 20. Use `npm ci` instead of `npm install` in CI or fresh
+automation when `package-lock.json` is present. Once dependencies are installed,
+you can:
 
 | Command           | What it does                                          |
 | ----------------- | ----------------------------------------------------- |
 | `./start.sh`      | Install deps if needed and start the server (recommended) |
 | `start.cmd`       | Same as above on Windows                              |
 | `make start`      | Same, via Make                                        |
+| `npm run check` / `make check` | Run typecheck, tests, build, lint placeholder, package dry-run |
 | `npm start`       | Just start (assumes deps installed)                   |
 | `npm run dev`     | Start with auto-reload on source changes              |
 | `npm run build`   | Compile TypeScript → `dist/`                          |
@@ -373,10 +376,12 @@ means no accounts are usable.
 ## Building from source
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm test
 npm run build
+npm run lint
+npm pack --dry-run
 node dist/server.js
 ```
 

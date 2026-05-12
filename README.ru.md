@@ -127,13 +127,15 @@ cd KiroKey
 npm install
 ```
 
-Нужен Node ≥ 20. После `npm install`:
+Нужен Node ≥ 20. В CI или чистой автоматизации используй `npm ci`, когда есть
+`package-lock.json`. После установки зависимостей:
 
 | Команда             | Что делает                                          |
 | ------------------- | --------------------------------------------------- |
 | `./start.sh`        | Ставит зависимости (если нужно) + запускает (Linux/Mac) |
 | `start.cmd`         | То же самое на Windows                              |
 | `make start`        | То же через Make                                    |
+| `npm run check` / `make check` | Typecheck, тесты, build, lint placeholder, package dry-run |
 | `npm start`         | Просто запуск (зависимости уже стоят)               |
 | `npm run dev`       | Запуск с автоперезагрузкой при изменении кода       |
 | `npm run build`     | Скомпилировать TypeScript → `dist/`                 |
@@ -332,10 +334,12 @@ curl -s http://127.0.0.1:11437/health
 ## Сборка из исходников
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm test
 npm run build
+npm run lint
+npm pack --dry-run
 node dist/server.js
 ```
 

@@ -1,0 +1,10 @@
+.github/
+.devin-notes/
+test/
+dist/**/*.map
+src/**/*.map
+*.log
+.env
+.env.*
+!.env.example
+tsconfig.json
