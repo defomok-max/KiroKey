@@ -8,6 +8,7 @@
 #   ./start.sh --set-password --random  # generate a strong random password
 #   ./start.sh --show-password          # print the current password (if any)
 #   ./start.sh --clear-password         # remove the persistent password
+#   ./start.sh --add-account --google   # open browser and bind one Kiro account
 #   PORT=12345 ./start.sh
 #   HOST=127.0.0.1 ./start.sh           # bind to localhost only
 #   API_KEY=secret ./start.sh           # one-shot password via env
@@ -36,13 +37,17 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
   exit 1
 fi
 
-if [ ! -d node_modules ] || [ package.json -nt node_modules ]; then
+if [ ! -d node_modules ] || [ package.json -nt node_modules ] || { [ -f package-lock.json ] && [ package-lock.json -nt node_modules ]; }; then
   echo "[kiro-router] installing dependencies (one-time)..."
   npm install --silent --no-audit --no-fund
 fi
 
-# Dispatch sub-commands (password management) before launching the server.
+# Dispatch sub-commands before launching the server.
 case "${1:-}" in
+  --add-account)
+    shift
+    exec npm run --silent add-account -- "$@"
+    ;;
   --set-password)
     shift
     exec npm run --silent set-password -- "$@"

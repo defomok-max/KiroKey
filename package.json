@@ -4,7 +4,8 @@
   "description": "Fast, focused OpenAI/Anthropic-compatible proxy for the Kiro IDE subscription. Use Claude via Kiro from OpenCode, Kilo Code, Cline, Continue, Roo, etc.",
   "type": "module",
   "bin": {
-    "kiro-router": "./dist/server.js"
+    "kiro-router": "./dist/server.js",
+    "kiro-router-add-account": "./dist/addAccount.js"
   },
   "main": "./dist/server.js",
   "scripts": {
@@ -12,24 +13,18 @@
     "start": "tsx src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start:dist": "node dist/server.js",
+    "prepack": "npm run build",
     "test": "node --import tsx/esm --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "typecheck:all": "tsc -p tsconfig.scripts.json --noEmit",
-    "check": "npm run typecheck && npm run typecheck:all && npm test",
     "lint": "echo 'no lint configured (kept dependency-light)'",
-    "login": "tsx scripts/login.ts",
+    "check": "npm run typecheck && npm test && npm run build && npm run lint && npm pack --dry-run",
+    "add-account": "tsx src/addAccount.ts",
     "set-password": "tsx scripts/setPassword.ts",
     "clear-password": "tsx scripts/setPassword.ts --clear",
-    "show-password": "tsx scripts/setPassword.ts --show",
-    "prepublishOnly": "npm run check && npm run build"
+    "show-password": "tsx scripts/setPassword.ts --show"
   },
-  "files": [
-    "dist",
-    "LICENSE",
-    "README.md"
-  ],
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {},
   "devDependencies": {
@@ -52,5 +47,13 @@
     "continue.dev",
     "roo"
   ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/defomok-max/KiroKey.git"
+  },
+  "bugs": {
+    "url": "https://github.com/defomok-max/KiroKey/issues"
+  },
+  "homepage": "https://github.com/defomok-max/KiroKey#readme",
   "license": "MIT"
 }

@@ -13,13 +13,8 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-export type RoutingStrategy = "round-robin" | "least-used" | "priority";
-
-const ROUTING_STRATEGIES: ReadonlySet<RoutingStrategy> = new Set([
-  "round-robin",
-  "least-used",
-  "priority",
-]);
+const MIN_PORT = 1;
+const MAX_PORT = 65535;
 
 export interface Config {
   port: number;
@@ -30,17 +25,28 @@ export interface Config {
   kiroProfileArn: string | null;
   refreshLeadSeconds: number;
   logLevel: "error" | "warn" | "info" | "debug";
-  strategy: RoutingStrategy;
-  maxAttempts: number | null;
-  corsOrigin: string;
-  warnings: string[];
+  serverMode: boolean;
 }
 
-function num(key: string, fallback: number): number {
+function bool(key: string, fallback: boolean): boolean {
   const raw = process.env[key];
   if (!raw) return fallback;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) ? parsed : fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
+function num(key: string, fallback: number, opts?: { min?: number; max?: number }): number {
+  const raw = process.env[key];
+  if (!raw) return fallback;
+  const trimmed = raw.trim();
+  if (!/^-?\d+$/.test(trimmed)) return fallback;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  if (opts?.min !== undefined && parsed < opts.min) return fallback;
+  if (opts?.max !== undefined && parsed > opts.max) return fallback;
+  return parsed;
 }
 
 function str(key: string, fallback: string): string {
@@ -79,45 +85,21 @@ export function loadConfig(): Config {
   // Password resolution priority: env (API_KEY or PASSWORD) > persisted file.
   // PASSWORD is an alias of API_KEY so users have a familiar name to type.
   const envKey = strOrNull("API_KEY") || strOrNull("PASSWORD");
-  const apiKey = envKey ?? readStoredPassword();
-
-  const warnings: string[] = [];
-
-  const strategyRaw = str("KIRO_STRATEGY", "round-robin").toLowerCase();
-  let strategy: RoutingStrategy = "round-robin";
-  if (ROUTING_STRATEGIES.has(strategyRaw as RoutingStrategy)) {
-    strategy = strategyRaw as RoutingStrategy;
-  } else if (process.env.KIRO_STRATEGY) {
-    warnings.push(
-      `Unknown KIRO_STRATEGY="${process.env.KIRO_STRATEGY}". Falling back to "round-robin". Valid: round-robin, least-used, priority.`
-    );
-  }
-
-  const maxAttemptsRaw = process.env.KIRO_MAX_ATTEMPTS;
-  let maxAttempts: number | null = null;
-  if (maxAttemptsRaw && maxAttemptsRaw.trim() !== "") {
-    const parsed = Number.parseInt(maxAttemptsRaw, 10);
-    if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 50) {
-      maxAttempts = parsed;
-    } else {
-      warnings.push(
-        `Ignoring KIRO_MAX_ATTEMPTS="${maxAttemptsRaw}" — must be an integer in [1, 50].`
-      );
-    }
-  }
+  const serverMode = bool("KIRO_SERVER_MODE", false);
+  const apiKey = envKey ?? (serverMode ? null : readStoredPassword());
 
   return {
-    port: num("PORT", 11437),
+    port: num("PORT", 11437, { min: MIN_PORT, max: MAX_PORT }),
     host: str("HOST", "0.0.0.0"),
     apiKey,
-    kiroTokenDir: str("KIRO_TOKEN_DIR", join(homedir(), ".aws", "sso", "cache")),
+    kiroTokenDir: str(
+      "KIRO_TOKEN_DIR",
+      serverMode ? "/data/aws-sso-cache" : join(homedir(), ".aws", "sso", "cache")
+    ),
     kiroRefreshToken: strOrNull("KIRO_REFRESH_TOKEN"),
     kiroProfileArn: strOrNull("KIRO_PROFILE_ARN"),
-    refreshLeadSeconds: num("KIRO_REFRESH_LEAD_SECONDS", 300),
+    refreshLeadSeconds: num("KIRO_REFRESH_LEAD_SECONDS", 300, { min: 0 }),
     logLevel,
-    strategy,
-    maxAttempts,
-    corsOrigin: str("CORS_ORIGIN", "*"),
-    warnings,
+    serverMode,
   };
 }

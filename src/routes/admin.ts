@@ -1,26 +1,22 @@
 /**
- * Read-only / control admin endpoints:
- *   GET  /health                         — basic liveness + account summary
- *   GET  /admin/accounts                 — full account state (excluding tokens)
- *   GET  /admin/stats                    — aggregate counters across accounts
- *   POST /admin/refresh                  — trigger an immediate refresh sweep
- *   POST /admin/reload                   — rescan ~/.aws/sso/cache + manifest
- *   POST /admin/accounts/:id/reset       — clear cooldown / failure state
- *   POST /admin/accounts/:id/disable     — mark account disabled
- *   POST /admin/accounts/:id/enable      — re-enable a disabled account
+ * Read-only admin endpoints:
+ *   GET  /health            — basic liveness check + account summary
+ *   GET  /admin/accounts    — full account state (excluding tokens)
+ *   POST /admin/accounts/link — start browser-based account linking
+ *   POST /admin/refresh     — trigger an immediate proactive refresh sweep
+ *   POST /admin/reload      — rescan ~/.aws/sso/cache and reload manifest
+ *   POST /admin/accounts/:id/reset — clear cooldown / failure state
  */
 
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { AccountManager } from "../kiro/accountManager.js";
-import { sendJson, sendError } from "../http/util.js";
+import { HttpRequestError, readJson, sendJson, sendError } from "../http/util.js";
 
 function redact(token: string | null): string | null {
-  // Show only last 4 characters — enough to identify in logs without giving
-  // useful entropy. Returns *** + 4 chars (e.g. "***aBcD").
   if (!token) return null;
-  if (token.length < 8) return "******";
-  return `***${token.slice(-4)}`;
+  const tail = token.length > 8 ? token.slice(-6) : "******";
+  return `***${tail}`;
 }
 
 export function handleHealth(_req: IncomingMessage, res: ServerResponse, manager: AccountManager): void {
@@ -64,45 +60,57 @@ export function handleAccounts(_req: IncomingMessage, res: ServerResponse, manag
   sendJson(res, 200, { accounts: list });
 }
 
-/**
- * Aggregate stats across all accounts. Useful for dashboards / scraping.
- */
-export function handleStats(_req: IncomingMessage, res: ServerResponse, manager: AccountManager): void {
-  const list = manager.list();
-  const now = Date.now();
-  const totalRequests = list.reduce((s, a) => s + a.requestCount, 0);
-  const totalSuccess = list.reduce((s, a) => s + a.successCount, 0);
-  const totalFailures = list.reduce((s, a) => s + a.failureCount, 0);
-  const healthy = list.filter((a) => !a.disabled && a.state === "healthy" && a.coolingUntil <= now).length;
-  const cooling = list.filter((a) => a.coolingUntil > now).length;
-  const terminal = list.filter((a) => a.state === "terminal").length;
-  const disabled = list.filter((a) => a.disabled).length;
-  sendJson(res, 200, {
-    status: healthy > 0 ? "ok" : "degraded",
-    strategy: manager.strategy,
-    accounts: {
-      total: list.length,
-      healthy,
-      cooling,
-      terminal,
-      disabled,
-    },
-    requests: {
-      total: totalRequests,
-      success: totalSuccess,
-      failures: totalFailures,
-      successRate: totalRequests > 0 ? totalSuccess / totalRequests : null,
-    },
-    per_account: list.map((a) => ({
-      id: a.id,
-      state: a.state,
-      requestCount: a.requestCount,
-      successCount: a.successCount,
-      failureCount: a.failureCount,
-      disabled: a.disabled,
-    })),
-    now: new Date(now).toISOString(),
+export async function handleLinkAccount(
+  req: IncomingMessage,
+  res: ServerResponse,
+  manager: AccountManager
+): Promise<void> {
+  let body: unknown;
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    if (err instanceof HttpRequestError) {
+      return sendError(res, err.status, err.code, err.message);
+    }
+    return sendError(res, 400, "invalid_request", (err as Error).message);
+  }
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return sendError(res, 400, "invalid_request", "expected JSON object");
+  }
+  const data = body as Record<string, unknown>;
+  const method = data.method;
+  if (method !== "google" && method !== "github" && method !== "builder-id" && method !== "idc") {
+    return sendError(res, 400, "invalid_request", "method must be google, github, builder-id, or idc");
+  }
+  const timeoutSec = parseTimeoutSec(data.timeoutSec);
+  if (timeoutSec === null) {
+    return sendError(res, 400, "invalid_request", "timeoutSec must be a positive number");
+  }
+  const account = await manager.link({
+    method,
+    label: typeof data.label === "string" ? data.label : undefined,
+    startUrl: typeof data.startUrl === "string" ? data.startUrl : undefined,
+    region: typeof data.region === "string" ? data.region : undefined,
+    openBrowser: typeof data.openBrowser === "boolean" ? data.openBrowser : true,
+    timeoutMs: timeoutSec === undefined ? undefined : timeoutSec * 1000,
   });
+  sendJson(res, 201, {
+    account: {
+      id: account.id,
+      label: account.label,
+      authMethod: account.authMethod,
+      state: account.state,
+      region: account.region,
+      sourcePath: account.sourcePath,
+      expiresAt: account.expiresAt ? new Date(account.expiresAt).toISOString() : null,
+    },
+  });
+}
+
+function parseTimeoutSec(value: unknown): number | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
 }
 
 export async function handleRefresh(
@@ -130,28 +138,6 @@ export function handleReset(
   accountId: string
 ): void {
   const ok = manager.reset(accountId);
-  if (!ok) return sendError(res, 404, "not_found", `unknown account: ${accountId}`);
-  handleAccounts(_req, res, manager);
-}
-
-export function handleDisable(
-  _req: IncomingMessage,
-  res: ServerResponse,
-  manager: AccountManager,
-  accountId: string
-): void {
-  const ok = manager.setDisabled(accountId, true);
-  if (!ok) return sendError(res, 404, "not_found", `unknown account: ${accountId}`);
-  handleAccounts(_req, res, manager);
-}
-
-export function handleEnable(
-  _req: IncomingMessage,
-  res: ServerResponse,
-  manager: AccountManager,
-  accountId: string
-): void {
-  const ok = manager.setDisabled(accountId, false);
   if (!ok) return sendError(res, 404, "not_found", `unknown account: ${accountId}`);
   handleAccounts(_req, res, manager);
 }

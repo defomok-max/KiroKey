@@ -73,9 +73,17 @@ export function postKiro(opts: {
   accessToken: string;
   payload: unknown;
   signal?: AbortSignal;
+  timeoutMs?: number;
 }): Promise<KiroResponse> {
   const bodyBytes = Buffer.from(JSON.stringify(opts.payload));
   return new Promise<KiroResponse>((resolve, reject) => {
+    let abort: (() => void) | null = null;
+    const cleanup = () => {
+      if (opts.signal && abort) {
+        opts.signal.removeEventListener("abort", abort);
+        abort = null;
+      }
+    };
     const req = httpsRequest(
       {
         host: HOST,
@@ -97,6 +105,7 @@ export function postKiro(opts: {
         },
       },
       (res) => {
+        res.once("close", cleanup);
         const headers: Record<string, string> = {};
         for (const [k, v] of Object.entries(res.headers)) {
           if (Array.isArray(v)) headers[k.toLowerCase()] = v.join(", ");
@@ -110,10 +119,17 @@ export function postKiro(opts: {
       }
     );
 
-    req.on("error", (err) => reject(err));
+    req.on("error", (err) => {
+      cleanup();
+      reject(err);
+    });
+
+    req.setTimeout(opts.timeoutMs ?? 120_000, () => {
+      req.destroy(new Error("upstream timeout"));
+    });
 
     if (opts.signal) {
-      const abort = () => req.destroy(new Error("aborted"));
+      abort = () => req.destroy(new Error("aborted"));
       if (opts.signal.aborted) abort();
       else opts.signal.addEventListener("abort", abort, { once: true });
     }

@@ -1,0 +1,30 @@
+[Unit]
+Description=KiroKey OpenAI/Anthropic proxy
+Documentation=https://github.com/defomok-max/KiroKey
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=kiro-router
+Group=kiro-router
+WorkingDirectory=/opt/KiroKey
+EnvironmentFile=-/etc/kiro-router.env
+Environment=NODE_ENV=production
+Environment=HOME=/var/lib/kiro-router
+Environment=KIRO_SERVER_MODE=1
+Environment=HOST=0.0.0.0
+Environment=PORT=11437
+Environment=KIRO_TOKEN_DIR=/var/lib/kiro-router/aws-sso-cache
+ExecStart=/usr/bin/node /opt/KiroKey/dist/server.js
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=15
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+ReadWritePaths=/var/lib/kiro-router
+
+[Install]
+WantedBy=multi-user.target

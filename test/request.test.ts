@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildKiroPayload } from "../src/kiro/request.js";
+import { loadConfig } from "../src/config.js";
 
 test("buildKiroPayload moves the last user turn to currentMessage", () => {
   const payload = buildKiroPayload(
@@ -117,4 +118,94 @@ test("buildKiroPayload converts assistant tool_calls + user tool_result", () => 
       "Tell me about the first one"
     )
   );
+});
+
+test("loadConfig rejects invalid port and negative refresh lead", () => {
+  const oldPort = process.env.PORT;
+  const oldLead = process.env.KIRO_REFRESH_LEAD_SECONDS;
+  try {
+    process.env.PORT = "99999";
+    process.env.KIRO_REFRESH_LEAD_SECONDS = "-5";
+    const cfg = loadConfig();
+    assert.equal(cfg.port, 11437);
+    assert.equal(cfg.refreshLeadSeconds, 300);
+  } finally {
+    if (oldPort === undefined) delete process.env.PORT;
+    else process.env.PORT = oldPort;
+    if (oldLead === undefined) delete process.env.KIRO_REFRESH_LEAD_SECONDS;
+    else process.env.KIRO_REFRESH_LEAD_SECONDS = oldLead;
+  }
+});
+
+test("loadConfig rejects partially numeric values", () => {
+  const oldPort = process.env.PORT;
+  try {
+    process.env.PORT = "123abc";
+    assert.equal(loadConfig().port, 11437);
+  } finally {
+    if (oldPort === undefined) delete process.env.PORT;
+    else process.env.PORT = oldPort;
+  }
+});
+
+test("loadConfig uses server defaults without reading local token cache", () => {
+  const oldServerMode = process.env.KIRO_SERVER_MODE;
+  const oldTokenDir = process.env.KIRO_TOKEN_DIR;
+  try {
+    process.env.KIRO_SERVER_MODE = "1";
+    delete process.env.KIRO_TOKEN_DIR;
+    const cfg = loadConfig();
+    assert.equal(cfg.serverMode, true);
+    assert.equal(cfg.kiroTokenDir, "/data/aws-sso-cache");
+  } finally {
+    if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
+    else process.env.KIRO_SERVER_MODE = oldServerMode;
+    if (oldTokenDir === undefined) delete process.env.KIRO_TOKEN_DIR;
+    else process.env.KIRO_TOKEN_DIR = oldTokenDir;
+  }
+});
+
+test("loadConfig keeps explicit token dir in server mode", () => {
+  const oldServerMode = process.env.KIRO_SERVER_MODE;
+  const oldTokenDir = process.env.KIRO_TOKEN_DIR;
+  try {
+    process.env.KIRO_SERVER_MODE = "true";
+    process.env.KIRO_TOKEN_DIR = "/custom/cache";
+    const cfg = loadConfig();
+    assert.equal(cfg.serverMode, true);
+    assert.equal(cfg.kiroTokenDir, "/custom/cache");
+  } finally {
+    if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
+    else process.env.KIRO_SERVER_MODE = oldServerMode;
+    if (oldTokenDir === undefined) delete process.env.KIRO_TOKEN_DIR;
+    else process.env.KIRO_TOKEN_DIR = oldTokenDir;
+  }
+});
+
+test("loadConfig treats false-like server mode values as disabled", () => {
+  const oldServerMode = process.env.KIRO_SERVER_MODE;
+  const oldTokenDir = process.env.KIRO_TOKEN_DIR;
+  try {
+    process.env.KIRO_SERVER_MODE = "off";
+    delete process.env.KIRO_TOKEN_DIR;
+    const cfg = loadConfig();
+    assert.equal(cfg.serverMode, false);
+    assert.ok(!cfg.kiroTokenDir.startsWith("/data/"));
+  } finally {
+    if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
+    else process.env.KIRO_SERVER_MODE = oldServerMode;
+    if (oldTokenDir === undefined) delete process.env.KIRO_TOKEN_DIR;
+    else process.env.KIRO_TOKEN_DIR = oldTokenDir;
+  }
+});
+
+test("buildKiroPayload preserves image placeholders", () => {
+  const payload = buildKiroPayload(
+    {
+      model: "claude-sonnet-4.5",
+      messages: [{ role: "user", content: [{ type: "image", source: { type: "base64" } }] }],
+    },
+    { model: "claude-sonnet-4.5" }
+  );
+  assert.match(payload.conversationState.currentMessage.userInputMessage.content, /\[image omitted\]$/);
 });

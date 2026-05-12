@@ -16,7 +16,7 @@ import { dispatchChat, DispatchFailure } from "../kiro/dispatch.js";
 import type { AccountManager } from "../kiro/accountManager.js";
 import type { OpenAIChatRequest } from "../kiro/request.js";
 import { KIRO_MODELS } from "../kiro/types.js";
-import { readJson, sendJson, sendSseStream, sendError } from "../http/util.js";
+import { HttpRequestError, readJson, sendJson, sendSseStream, sendError } from "../http/util.js";
 
 export async function handleModels(_req: IncomingMessage, res: ServerResponse): Promise<void> {
   sendJson(res, 200, {
@@ -39,6 +39,9 @@ export async function handleChatCompletions(
   try {
     body = (await readJson(req)) as OpenAIChatRequest;
   } catch (err) {
+    if (err instanceof HttpRequestError) {
+      return sendError(res, err.status, err.code, err.message);
+    }
     return sendError(res, 400, "invalid_request", (err as Error).message);
   }
 

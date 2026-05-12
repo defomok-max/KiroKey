@@ -11,21 +11,13 @@ Cline, Continue.dev, Roo Code, Claude Code, or any tool that speaks
 
 ## TL;DR — 3 steps
 
-1. **Authenticate.** Two options:
+1. **Log into Kiro IDE once** (https://kiro.dev) so it writes
+   `~/.aws/sso/cache/kiro-auth-token.json`. You can log into multiple
+   Kiro accounts — KiroKey will pick up all of them and rotate between them.
+   Or use `./start.sh --add-account --google` / `--github` / `--builder-id`
+   to open a browser login and bind an account directly.
 
-   - **Built-in login (no Kiro IDE required)** — opens AWS Builder ID device-code
-     flow in your browser, then writes the token to the same cache file Kiro IDE
-     uses, so the proxy auto-picks it up:
-
-     ```bash
-     npm run login
-     ```
-
-   - **Or just log into Kiro IDE once** (https://kiro.dev) — Kiro writes
-     `~/.aws/sso/cache/kiro-auth-token.json` for you. You can log into multiple
-     Kiro accounts — KiroKey picks up all of them and rotates between them.
-
-2. **Clone + start** (needs Node ≥ 18):
+2. **Clone + start** (needs Node ≥ 20):
 
    ```bash
    git clone https://github.com/defomok-max/KiroKey.git
@@ -113,12 +105,10 @@ single use case because it:
 | GET    | `/v1/models`                      | List Claude models exposed via Kiro                      |
 | GET    | `/health`                         | Liveness + per-state account summary                     |
 | GET    | `/admin/accounts`                 | Full per-account status (tokens redacted)                |
-| GET    | `/admin/stats`                    | Aggregate counters across all accounts                   |
+| POST   | `/admin/accounts/link`            | Browser/device login and bind a new account              |
 | POST   | `/admin/refresh`                  | Kick a proactive refresh sweep                           |
 | POST   | `/admin/reload`                   | Rescan `~/.aws/sso/cache` and merge new accounts         |
 | POST   | `/admin/accounts/:id/reset`       | Clear cool-downs / failure counters for one account      |
-| POST   | `/admin/accounts/:id/disable`     | Pause routing to this account without deleting state     |
-| POST   | `/admin/accounts/:id/enable`     | Resume routing to a previously disabled account          |
 
 Supported models (proxied to AWS CodeWhisperer):
 
@@ -138,53 +128,32 @@ cd KiroKey
 npm install
 ```
 
-Requires Node ≥ 18. Once dependencies are installed, you can:
+Requires Node ≥ 20. Use `npm ci` instead of `npm install` in CI or fresh
+automation when `package-lock.json` is present. Once dependencies are installed,
+you can:
 
 | Command           | What it does                                          |
 | ----------------- | ----------------------------------------------------- |
 | `./start.sh`      | Install deps if needed and start the server (recommended) |
 | `start.cmd`       | Same as above on Windows                              |
 | `make start`      | Same, via Make                                        |
+| `npm run check` / `make check` | Run typecheck, tests, build, lint placeholder, package dry-run |
+| `./start.sh --add-account --google` | Open browser login and bind one more account        |
+| `npm run add-account -- --google` | Same account-linking command through npm             |
 | `npm start`       | Just start (assumes deps installed)                   |
 | `npm run dev`     | Start with auto-reload on source changes              |
 | `npm run build`   | Compile TypeScript → `dist/`                          |
-| `npm run login`   | Built-in AWS Builder ID device-code login (writes `~/.aws/sso/cache/kiro-auth-token.json`) |
 | `npm test`        | Run unit tests                                        |
 | `npm run typecheck` | TypeScript check, no emit                           |
-| `npm run check`   | `typecheck` + scripts/tests typecheck + tests          |
 
 ## Getting Kiro tokens
 
-KiroKey picks up **every account** in `~/.aws/sso/cache/` and rotates between
-them. You have two ways to populate it:
+You can either log into Kiro IDE once so it writes tokens to
+`~/.aws/sso/cache/`, or link accounts directly from KiroKey. KiroKey will pick
+up **every account** in that cache and rotate between them.
 
-### Option A — built-in login (no Kiro IDE)
-
-Fastest path. Runs the standard AWS Builder ID device-code flow:
-
-```bash
-npm run login
-```
-
-Opens a verification URL in your browser. Log in once, the script saves the
-token to `~/.aws/sso/cache/kiro-auth-token.json` (mode `0600`) and the proxy
-auto-picks it up. Repeat for additional accounts (pass `--out=...` to write to
-a different file name).
-
-Flags / env:
-
-- `--no-open` — don't try to auto-launch a browser
-- `--region=<aws-region>` — default `us-east-1`
-- `--start-url=<url>` — IDC start URL (default: AWS Builder ID portal)
-- `--out=<path>` — custom token file path
-- `KIRO_REGION`, `KIRO_START_URL`, `KIRO_TOKEN_DIR`, `KIRO_TOKEN_FILE` —
-  environment overrides
-
-### Option B — Kiro IDE
-
-- **AWS Builder ID** (free) — install
+- **AWS Builder ID** (free, recommended) — install
   [Kiro IDE](https://kiro.dev), open it, click "Sign in with AWS Builder ID".
-  Kiro writes `~/.aws/sso/cache/kiro-auth-token.json`.
 - **Google / GitHub** (Cognito social login) — also supported.
 - **AWS Identity Center (IDC)** — enterprise, works too (set `KIRO_PROFILE_ARN`
   if needed).
@@ -193,7 +162,37 @@ After signing in, you should see files like
 `~/.aws/sso/cache/kiro-auth-token.json` containing a `refreshToken` starting
 with `aorAAAAAG`. The router auto-discovers all such files.
 
-### Adding more accounts
+### Adding accounts in the browser
+
+Run one command per account. KiroKey opens the browser, you authorize the
+account, then the refresh token is saved as a separate account JSON file:
+
+```bash
+npm run add-account -- --google
+npm run add-account -- --github
+npm run add-account -- --builder-id
+npm run add-account -- --idc --start-url https://example.awsapps.com/start --region us-east-1
+```
+
+Use `--label name` to name the account, `--no-browser` on a remote server to
+print the URL/code instead of opening a local browser, and `--cache-dir PATH` to
+write into a custom `KIRO_TOKEN_DIR`. `./start.sh --add-account --google` is the
+same flow with auto-install first. If the server is already running, reload:
+
+```bash
+curl -X POST -H "Authorization: Bearer <password>" http://127.0.0.1:11437/admin/reload
+```
+
+The same flow is available through the admin API:
+
+```bash
+curl -X POST http://127.0.0.1:11437/admin/accounts/link \
+  -H "Authorization: Bearer <password>" \
+  -H "Content-Type: application/json" \
+  -d '{"method":"google","label":"work"}'
+```
+
+### Adding more accounts manually
 
 Just log into Kiro IDE with another account (or copy a second JSON into
 `~/.aws/sso/cache/`). KiroKey will pick it up **without restart** thanks to
@@ -203,7 +202,7 @@ filesystem watching. Verify with:
 curl http://127.0.0.1:11437/admin/accounts | jq
 ```
 
-### Headless / Docker / remote box
+### Server / Docker / remote box
 
 If you can't run Kiro IDE on the same machine, copy the `refreshToken` from
 `~/.aws/sso/cache/kiro-auth-token.json` on your laptop and set:
@@ -215,9 +214,35 @@ export KIRO_REFRESH_TOKEN="aorAAAAAG..."
 
 The router will use that single account.
 
+For production-style server deployment, use the included Docker Compose or
+systemd setup:
+
+```bash
+cp deploy/kiro-router.env.example .env
+$EDITOR .env
+docker compose up -d --build
+```
+
+The example leaves `API_KEY` blank on purpose; set it before starting or Docker
+Compose will fail fast.
+
+Or install as a Linux systemd service:
+
+```bash
+sudo sh deploy/install-systemd.sh
+sudoedit /etc/kiro-router.env
+sudo systemctl start kiro-router
+```
+
+See [docs/server.md](docs/server.md) for the full VPS/server guide.
+
 ## Run forever (optional)
 
-**systemd (Linux):**
+For a real VPS/server, prefer [docs/server.md](docs/server.md): it includes
+Docker Compose and a hardened systemd service. The snippet below is only a quick
+per-user local service.
+
+**systemd user service (Linux):**
 
 ```bash
 mkdir -p ~/.config/systemd/user
@@ -266,9 +291,8 @@ or export them directly.
 | `KIRO_REFRESH_TOKEN`        | _(unset)_           | Single override account (for headless/Docker)            |
 | `KIRO_PROFILE_ARN`          | _(unset)_           | Profile ARN for IDC users                                |
 | `KIRO_REFRESH_LEAD_SECONDS` | `300`               | Refresh tokens this many seconds before expiry           |
-| `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority` (invalid → warn + round-robin) |
-| `KIRO_MAX_ATTEMPTS`         | `5`                 | Max accounts tried per client request (`1`..`50`)        |
-| `CORS_ORIGIN`               | `*`                 | `Access-Control-Allow-Origin` for browser callers        |
+| `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                |
+| `KIRO_SERVER_MODE`          | `false`             | Require `API_KEY` and use server-safe token dir defaults |
 | `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                      |
 
 ## Integration recipes
@@ -414,12 +438,16 @@ means no accounts are usable.
 ## Building from source
 
 ```bash
-npm install
+npm ci
 npm run typecheck
 npm test
 npm run build
+npm run lint
+npm pack --dry-run
 node dist/server.js
 ```
+
+Commit `package-lock.json` when dependencies change so CI and local installs resolve the same toolchain.
 
 ## Security
 
@@ -430,6 +458,8 @@ node dist/server.js
   (`~/.kiro-router/accounts.json`) are stored with mode `0600` and never
   logged. Admin endpoints redact tokens.
 - Don't commit your `.env` or `~/.kiro-router/` files.
+- See [SECURITY.md](SECURITY.md) for vulnerability reporting and server
+  hardening notes.
 
 ## Troubleshooting
 

@@ -9,17 +9,18 @@
  *   npm run set-password                  # prompt interactively
  *   npm run set-password -- <password>    # set in one line
  *   npm run set-password -- --random      # generate a strong random one
- *   npm run set-password -- --show        # show that a password is set (masked)
- *   npm run set-password -- --reveal      # like --show, but reveal the value
+ *   npm run set-password -- --show        # print the current password
  *   npm run set-password -- --clear       # delete the stored password
  *   npm run clear-password                # alias for --clear
  */
 
 import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
-import { createInterface } from "node:readline";
+import { createInterface, emitKeypressEvents, type Key } from "node:readline";
 import { randomBytes } from "node:crypto";
 import { passwordFilePath } from "../src/config.js";
+
+const MIN_PASSWORD_LENGTH = 8;
 
 function readPassword(): string | null {
   try {
@@ -42,35 +43,62 @@ function clearPassword(): void {
 }
 
 async function prompt(question: string, hidden: boolean): Promise<string> {
+  if (hidden && process.stdin.isTTY) {
+    return hiddenPrompt(question);
+  }
   const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
   return new Promise<string>((resolve) => {
-    if (hidden) {
-      // Mute output while user types.
-      const out = rl as unknown as { output: NodeJS.WritableStream; _writeToOutput?: (s: string) => void };
-      out._writeToOutput = (s: string) => {
-        if (s.includes(question)) out.output.write(s);
-      };
-    }
     rl.question(question, (answer) => {
       rl.close();
-      if (hidden) process.stdout.write("\n");
       resolve(answer);
     });
   });
 }
 
-function maskPassword(value: string): string {
-  if (!value) return "";
-  if (value.length <= 4) return "*".repeat(value.length);
-  if (value.length <= 8) return value.slice(0, 1) + "*".repeat(value.length - 1);
-  return value.slice(0, 2) + "*".repeat(value.length - 4) + value.slice(-2);
+function hiddenPrompt(question: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let value = "";
+    const input = process.stdin;
+    const wasRaw = input.isRaw;
+    process.stdout.write(question);
+    emitKeypressEvents(input);
+    input.setRawMode(true);
+    input.resume();
+
+    const cleanup = () => {
+      input.off("keypress", onKeypress);
+      input.setRawMode(wasRaw);
+      process.stdout.write("\n");
+    };
+
+    const onKeypress = (str: string, key: Key) => {
+      if (key.ctrl && key.name === "c") {
+        cleanup();
+        reject(new Error("cancelled"));
+        return;
+      }
+      if (key.name === "return" || key.name === "enter") {
+        cleanup();
+        resolve(value);
+        return;
+      }
+      if (key.name === "backspace") {
+        value = value.slice(0, -1);
+        return;
+      }
+      if (str && !key.ctrl && !key.meta) {
+        value += str;
+      }
+    };
+
+    input.on("keypress", onKeypress);
+  });
 }
 
 async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const isClear = args.includes("--clear") || args.includes("-c") || args.includes("--clear-password");
-  const isReveal = args.includes("--reveal") || args.includes("--print");
-  const isShow = args.includes("--show") || isReveal;
+  const isShow = args.includes("--show") || args.includes("--print");
   const isRandom = args.includes("--random") || args.includes("-r");
   const path = passwordFilePath();
 
@@ -82,11 +110,7 @@ async function main(): Promise<void> {
     } else {
       console.log("kiro-router: password is set");
       console.log("file:", path);
-      if (isReveal) {
-        console.log("value:", current);
-      } else {
-        console.log("value:", maskPassword(current), "(pass --reveal to show the full value)");
-      }
+      console.log("value:", current);
     }
     return;
   }
@@ -118,17 +142,22 @@ async function main(): Promise<void> {
       console.error("kiro-router: passwords did not match. Nothing written.");
       process.exit(1);
     }
-    if (a.length < 8) {
-      console.error("kiro-router: password must be at least 8 characters. Nothing written.");
+    if (a.length < MIN_PASSWORD_LENGTH) {
+      console.error(`kiro-router: password must be at least ${MIN_PASSWORD_LENGTH} characters. Nothing written.`);
       process.exit(1);
     }
     value = a;
   }
 
+  if (value.length < MIN_PASSWORD_LENGTH) {
+    console.error(`kiro-router: password must be at least ${MIN_PASSWORD_LENGTH} characters. Nothing written.`);
+    process.exit(1);
+  }
+
   writePassword(value);
   console.log("kiro-router: password saved to " + path + " (mode 0600).");
   console.log("Restart the server (npm start) for the new password to take effect.");
-  console.log("Clients must send: Authorization: Bearer " + value);
+  console.log("Clients must send: Authorization: Bearer <password>");
 }
 
 main().catch((err) => {

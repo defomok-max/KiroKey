@@ -78,22 +78,8 @@ export interface DispatchOptions {
   manager: AccountManager;
   /** Forwarded so client cancellations terminate the upstream socket. */
   signal?: AbortSignal;
-  /** Max accounts to try before giving up. Default = candidates.length, capped. */
+  /** Max accounts to try before giving up. Default = candidates.length, max 5. */
   maxAttempts?: number;
-}
-
-interface DispatchDefaults {
-  /** Hard cap on attempts per request. Defaults to 5; overridable via env. */
-  maxAttempts: number;
-}
-
-const dispatchDefaults: DispatchDefaults = { maxAttempts: 5 };
-
-/** Configure dispatch-level defaults (called from server.ts during startup). */
-export function setDispatchDefaults(partial: Partial<DispatchDefaults>): void {
-  if (typeof partial.maxAttempts === "number" && partial.maxAttempts >= 1) {
-    dispatchDefaults.maxAttempts = Math.min(partial.maxAttempts, 50);
-  }
 }
 
 export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResult> {
@@ -102,11 +88,7 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
   const wantStream = stream;
   const attempts: DispatchFailure["attempts"] = [];
   const excludeIds = new Set<string>();
-  const fallbackCap = dispatchDefaults.maxAttempts;
-  const maxAttempts = Math.min(
-    opts.maxAttempts ?? Math.max(1, manager.list().length),
-    fallbackCap
-  );
+  const maxAttempts = Math.min(opts.maxAttempts ?? Math.max(1, manager.list().length), 5);
 
   if (manager.list().length === 0) {
     throw new DispatchFailure(
@@ -117,6 +99,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
   }
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (signal?.aborted) {
+      throw new DispatchFailure("client aborted request", attempts, 499);
+    }
     const account = manager.pick(excludeIds);
     if (!account) break;
 
@@ -125,6 +110,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       accessToken = await manager.ensureToken(account);
     } catch (err) {
       const e = err as Error;
+      if (signal?.aborted || e.message === "aborted") {
+        throw new DispatchFailure("client aborted request", attempts, 499);
+      }
       attempts.push({ accountId: account.id, status: 0, reason: `refresh failed: ${e.message}` });
       excludeIds.add(account.id);
       continue;
@@ -141,6 +129,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       response = await postKiro({ accessToken, payload, signal });
     } catch (err) {
       const e = err as Error;
+      if (signal?.aborted || e.message === "aborted") {
+        throw new DispatchFailure("client aborted request", attempts, 499);
+      }
       log.warn("dispatch: transport error", { id: account.id, err: e.message });
       attempts.push({ accountId: account.id, status: 0, reason: `transport: ${e.message}` });
       manager.cool(account.id, 5, `transport: ${e.message}`);
@@ -152,8 +143,7 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       // Token might be stale even though we thought it was fresh — refresh once
       // and retry on the same account.
       try {
-        await manager.refreshOne(account);
-        accessToken = account.accessToken || accessToken;
+        accessToken = await manager.refreshAndGetToken(account);
         const retry = await postKiro({ accessToken, payload, signal });
         if (retry.status >= 200 && retry.status < 300) {
           return finalizeSuccess(retry, account, wantStream, request.model, manager);
@@ -189,6 +179,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       } catch (err) {
         if (err instanceof DispatchFailure) throw err;
         const e = err as Error;
+        if (signal?.aborted || e.message === "aborted") {
+          throw new DispatchFailure("client aborted request", attempts, 499);
+        }
         attempts.push({ accountId: account.id, status: 0, reason: `auth-retry: ${e.message}` });
         excludeIds.add(account.id);
         continue;

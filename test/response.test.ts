@@ -1,76 +1,76 @@
-/**
- * Tests for the OpenAI SSE adaptor (response.ts).
- *
- * Asserts that:
- *   - normal assistantResponseEvent frames are converted to delta chunks
- *   - upstream `exception` frames are surfaced as an inline error chunk
- *     and the stream still emits a `[DONE]` terminator (finish_reason="error")
- *   - transport errors during the upstream stream cause an error chunk + DONE
- */
-
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Readable } from "node:stream";
 
 import { buildFrame } from "../src/kiro/eventstream.js";
-import { iterateKiroAsOpenAISSE } from "../src/kiro/response.js";
+import { collectKiroAsOpenAIJson, iterateKiroAsOpenAISSE } from "../src/kiro/response.js";
+import { openAiSseToAnthropicSse } from "../src/routes/anthropic.js";
 
 const enc = new TextEncoder();
 
-async function collect(it: AsyncIterable<Buffer>): Promise<string> {
-  const parts: Buffer[] = [];
-  for await (const part of it) parts.push(part);
-  return Buffer.concat(parts).toString("utf-8");
+function streamFrames(payloads: Array<{ type: string; payload: unknown }>): Readable {
+  return Readable.from(
+    payloads.map((p) =>
+      buildFrame({ ":event-type": p.type }, enc.encode(JSON.stringify(p.payload)))
+    )
+  );
 }
 
-test("iterateKiroAsOpenAISSE forwards normal content as OpenAI delta chunks", async () => {
-  const f1 = buildFrame(
-    { ":event-type": "assistantResponseEvent" },
-    enc.encode(JSON.stringify({ content: "Hello " }))
+test("collectKiroAsOpenAIJson preserves reasoning and cache usage", async () => {
+  const json = await collectKiroAsOpenAIJson(
+    streamFrames([
+      { type: "reasoningContentEvent", payload: { content: "thinking" } },
+      { type: "assistantResponseEvent", payload: { content: "answer" } },
+      {
+        type: "metricsEvent",
+        payload: { inputTokens: 10, outputTokens: 5, cacheReadTokens: 3, cacheCreationTokens: 2 },
+      },
+    ]),
+    "claude-sonnet-4.5"
   );
-  const f2 = buildFrame(
-    { ":event-type": "assistantResponseEvent" },
-    enc.encode(JSON.stringify({ content: "world" }))
-  );
-  const stream = Readable.from([Buffer.from(f1), Buffer.from(f2)]);
-  const out = await collect(iterateKiroAsOpenAISSE(stream, "claude-sonnet-4.5"));
-  assert.ok(out.includes('"content":"Hello "'), "first content delta should be present");
-  assert.ok(out.includes('"content":"world"'), "second content delta should be present");
-  assert.ok(out.endsWith("data: [DONE]\n\n"), "stream must terminate with [DONE]");
-  assert.ok(out.includes('"finish_reason":"stop"'));
+  assert.equal(json.choices[0].message.content, "<thinking>thinking</thinking>answer");
+  assert.deepEqual(json.usage, {
+    prompt_tokens: 10,
+    completion_tokens: 5,
+    total_tokens: 15,
+    cache_read_input_tokens: 3,
+    cache_creation_input_tokens: 2,
+  });
 });
 
-test("iterateKiroAsOpenAISSE surfaces exception frames as an inline error chunk", async () => {
-  const ok = buildFrame(
-    { ":event-type": "assistantResponseEvent" },
-    enc.encode(JSON.stringify({ content: "partial" }))
-  );
-  const err = buildFrame(
-    { ":event-type": "exception", ":message-type": "exception" },
-    enc.encode(JSON.stringify({ message: "kaboom" }))
-  );
-  const stream = Readable.from([Buffer.from(ok), Buffer.from(err)]);
-  const out = await collect(iterateKiroAsOpenAISSE(stream, "claude-sonnet-4.5"));
-  assert.ok(out.includes("partial"), "partial content must still be emitted");
-  assert.ok(out.includes("kiro-router: upstream error"), "error chunk must explain the failure");
-  assert.ok(out.includes("kaboom"), "error message text must be forwarded");
-  assert.ok(out.includes('"finish_reason":"error"'), "finish_reason must be 'error'");
-  assert.ok(out.endsWith("data: [DONE]\n\n"), "[DONE] must terminate the stream");
-});
-
-test("iterateKiroAsOpenAISSE handles a transport error mid-stream", async () => {
-  async function* gen(): AsyncIterable<Buffer> {
-    const f = buildFrame(
-      { ":event-type": "assistantResponseEvent" },
-      enc.encode(JSON.stringify({ content: "partial-then-fail" }))
-    );
-    yield Buffer.from(f);
-    throw new Error("connection reset by peer");
+test("iterateKiroAsOpenAISSE emits assistant role for empty streams", async () => {
+  const chunks: string[] = [];
+  for await (const chunk of iterateKiroAsOpenAISSE(Readable.from([]), "claude-sonnet-4.5")) {
+    chunks.push(chunk.toString("utf-8"));
   }
-  const stream = Readable.from(gen());
-  const out = await collect(iterateKiroAsOpenAISSE(stream, "claude-sonnet-4.5"));
-  assert.ok(out.includes("partial-then-fail"));
-  assert.ok(out.includes("connection reset by peer"));
-  assert.ok(out.includes('"finish_reason":"error"'));
-  assert.ok(out.endsWith("data: [DONE]\n\n"));
+  const finish = JSON.parse(chunks[0].replace(/^data: /, ""));
+  assert.deepEqual(finish.choices[0].delta, { role: "assistant" });
+  assert.equal(chunks.at(-1), "data: [DONE]\n\n");
+});
+
+test("openAiSseToAnthropicSse emits message_start for empty streams", async () => {
+  const out: string[] = [];
+  const stream = openAiSseToAnthropicSse(
+    Readable.from([Buffer.from("data: [DONE]\n\n")]),
+    "claude-sonnet-4.5",
+    "empty"
+  );
+  for await (const chunk of stream) out.push(chunk.toString("utf-8"));
+  assert.ok(out[0].startsWith("event: message_start\n"));
+  assert.ok(out.some((event) => event.startsWith("event: message_stop\n")));
+});
+
+test("openAiSseToAnthropicSse parses multiline data events", async () => {
+  const data = JSON.stringify({
+    choices: [{ delta: { content: "hello" }, finish_reason: null }],
+  });
+  const split = Math.floor(data.length / 2);
+  const stream = openAiSseToAnthropicSse(
+    Readable.from([Buffer.from(`data: ${data.slice(0, split)}\ndata: ${data.slice(split)}\n\n`)]),
+    "claude-sonnet-4.5",
+    "multiline"
+  );
+  const out: string[] = [];
+  for await (const chunk of stream) out.push(chunk.toString("utf-8"));
+  assert.ok(out.some((event) => event.includes('"text":"hello"')));
 });

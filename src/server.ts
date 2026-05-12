@@ -8,40 +8,33 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
-import { timingSafeEqual } from "node:crypto";
 
 import { loadConfig } from "./config.js";
 import { log, setLogLevel } from "./logger.js";
-import { AccountManager } from "./kiro/accountManager.js";
+import { AccountManager, type RoutingStrategy } from "./kiro/accountManager.js";
 import { warmUpstream } from "./kiro/client.js";
-import { setDispatchDefaults } from "./kiro/dispatch.js";
 import {
   getAuthBearer,
+  authTokenMatches,
   handleCorsPreflight,
   sendError,
+  sendJson,
   sendText,
-  setCorsOrigin,
 } from "./http/util.js";
 import { handleChatCompletions, handleModels } from "./routes/openai.js";
 import { handleMessages } from "./routes/anthropic.js";
 import {
   handleAccounts,
-  handleDisable,
-  handleEnable,
   handleHealth,
+  handleLinkAccount,
   handleRefresh,
   handleReload,
   handleReset,
-  handleStats,
 } from "./routes/admin.js";
 
 async function main() {
   const cfg = loadConfig();
   setLogLevel(cfg.logLevel);
-
-  for (const warning of cfg.warnings) {
-    log.warn("config: " + warning);
-  }
 
   const passwordSource = cfg.apiKey
     ? process.env.API_KEY || process.env.PASSWORD
@@ -54,13 +47,8 @@ async function main() {
     password: passwordSource,
     tokenDir: cfg.kiroTokenDir,
     refreshLead: cfg.refreshLeadSeconds,
-    strategy: cfg.strategy,
-    maxAttempts: cfg.maxAttempts,
-    corsOrigin: cfg.corsOrigin,
+    serverMode: cfg.serverMode,
   });
-
-  setCorsOrigin(cfg.corsOrigin);
-  if (cfg.maxAttempts !== null) setDispatchDefaults({ maxAttempts: cfg.maxAttempts });
 
   // Loud banner when bound to all interfaces without auth — anyone who can
   // reach this machine could consume the user's Kiro subscription.
@@ -87,12 +75,25 @@ async function main() {
     });
   }
 
+  if (cfg.serverMode && !cfg.apiKey) {
+    log.error("kiro-router: API_KEY is required when KIRO_SERVER_MODE=1");
+    process.exit(1);
+  }
+
+  const strategyRaw = (process.env.KIRO_STRATEGY || "round-robin").trim().toLowerCase();
+  const strategy: RoutingStrategy =
+    strategyRaw === "round-robin" || strategyRaw === "least-used" || strategyRaw === "priority"
+      ? strategyRaw
+      : "round-robin";
+  if (strategy !== strategyRaw) {
+    log.warn("kiro-router: invalid KIRO_STRATEGY, using round-robin", { value: strategyRaw });
+  }
   const manager = new AccountManager({
     cacheDir: cfg.kiroTokenDir,
     overrideRefreshToken: cfg.kiroRefreshToken,
     overrideProfileArn: cfg.kiroProfileArn,
     refreshLeadSeconds: cfg.refreshLeadSeconds,
-    strategy: cfg.strategy,
+    strategy,
   });
   await manager.start();
 
@@ -140,17 +141,18 @@ async function main() {
         "POST /v1/chat/completions",
         "POST /v1/messages",
         "GET  /admin/accounts",
-        "GET  /admin/stats",
+        "POST /admin/accounts/link",
         "POST /admin/refresh",
         "POST /admin/reload",
         "POST /admin/accounts/:id/reset",
-        "POST /admin/accounts/:id/disable",
-        "POST /admin/accounts/:id/enable",
       ],
     });
   });
 
+  let shuttingDown = false;
   const shutdown = async (sig: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info("server: shutting down", { signal: sig });
     await manager.stop();
     server.close(() => process.exit(0));
@@ -180,15 +182,14 @@ async function handle(
     return sendText(
       res,
       200,
-      "kiro-router — see /health, /v1/models, /v1/chat/completions, /v1/messages, /admin/accounts"
+      "kiro-router — see /health, /v1/models, /v1/chat/completions, /v1/messages, /admin/accounts, /admin/accounts/link"
     );
   }
 
-  // Auth check for everything else. Uses constant-time comparison so we
-  // don't leak the expected key byte-by-byte via response timing.
+  // Auth check for everything else.
   if (apiKey) {
     const presented = getAuthBearer(req);
-    if (!presented || !constantTimeEquals(presented, apiKey)) {
+    if (!authTokenMatches(presented, apiKey)) {
       return sendError(res, 401, "unauthorized", "invalid or missing API key");
     }
   }
@@ -205,8 +206,8 @@ async function handle(
   if (path === "/admin/accounts" && method === "GET") {
     return handleAccounts(req, res, manager);
   }
-  if (path === "/admin/stats" && method === "GET") {
-    return handleStats(req, res, manager);
+  if (path === "/admin/accounts/link" && method === "POST") {
+    return handleLinkAccount(req, res, manager);
   }
   if (path === "/admin/refresh" && method === "POST") {
     return handleRefresh(req, res, manager);
@@ -216,33 +217,14 @@ async function handle(
   }
   const resetMatch = /^\/admin\/accounts\/([^/]+)\/reset$/.exec(path);
   if (resetMatch && method === "POST") {
-    return handleReset(req, res, manager, decodeURIComponent(resetMatch[1]));
-  }
-  const disableMatch = /^\/admin\/accounts\/([^/]+)\/disable$/.exec(path);
-  if (disableMatch && method === "POST") {
-    return handleDisable(req, res, manager, decodeURIComponent(disableMatch[1]));
-  }
-  const enableMatch = /^\/admin\/accounts\/([^/]+)\/enable$/.exec(path);
-  if (enableMatch && method === "POST") {
-    return handleEnable(req, res, manager, decodeURIComponent(enableMatch[1]));
+    try {
+      return handleReset(req, res, manager, decodeURIComponent(resetMatch[1]));
+    } catch {
+      return sendError(res, 400, "invalid_request", "invalid account id encoding");
+    }
   }
 
   sendError(res, 404, "not_found", `no route for ${method} ${path}`);
-}
-
-function constantTimeEquals(a: string, b: string): boolean {
-  // Compare two strings in constant time. Falls back to a length-only equal
-  // when lengths differ (still constant time on the input, but the difference
-  // in length is itself a side channel — we treat unequal-length as not-equal).
-  const ab = Buffer.from(a, "utf-8");
-  const bb = Buffer.from(b, "utf-8");
-  if (ab.length !== bb.length) {
-    // Still run timingSafeEqual against a same-length buffer to keep the
-    // CPU profile uniform per request.
-    timingSafeEqual(ab, Buffer.alloc(ab.length));
-    return false;
-  }
-  return timingSafeEqual(ab, bb);
 }
 
 main().catch((err) => {

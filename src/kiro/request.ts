@@ -39,6 +39,7 @@ export interface OpenAIMessage {
 export interface OpenAIContentBlock {
   type: string;
   text?: string;
+  source?: { type?: string; media_type?: string; data?: string };
   content?: string | Array<{ type?: string; text?: string }>;
   tool_use_id?: string;
 }
@@ -189,8 +190,12 @@ function extractText(content: OpenAIMessage["content"]): string {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
   return content
-    .filter((c) => c?.type === "text" || c?.text)
-    .map((c) => c.text || "")
+    .map((c) => {
+      if (c?.type === "text" || c?.text) return c.text || "";
+      if (c?.type === "image_url" || c?.type === "image") return "[image omitted]";
+      return "";
+    })
+    .filter(Boolean)
     .join("\n");
 }
 
@@ -335,21 +340,6 @@ function convertMessages(
     };
   }
 
-  // Hoist tools from history[0] (where they were attached in flushPending)
-  // into currentMessage if the current message doesn't already carry them.
-  // MUST happen BEFORE the strip loop below — otherwise the tools have
-  // already been deleted and the hoist condition is always false.
-  const firstUser = history[0] ? asUserMsg(history[0]) : null;
-  if (
-    firstUser?.userInputMessage?.userInputMessageContext?.tools &&
-    !currentMessage.userInputMessage.userInputMessageContext?.tools
-  ) {
-    currentMessage.userInputMessage.userInputMessageContext = {
-      ...(currentMessage.userInputMessage.userInputMessageContext || {}),
-      tools: firstUser.userInputMessage.userInputMessageContext.tools,
-    };
-  }
-
   // Strip tools from history entries (only currentMessage carries them).
   for (const entry of history) {
     const u = asUserMsg(entry);
@@ -364,6 +354,18 @@ function convertMessages(
       delete u.userInputMessage.userInputMessageContext;
     }
     if (!u.userInputMessage.modelId) u.userInputMessage.modelId = model;
+  }
+
+  // Hoist tools from history[0] into currentMessage if necessary.
+  const firstUser = history[0] ? asUserMsg(history[0]) : null;
+  if (
+    firstUser?.userInputMessage?.userInputMessageContext?.tools &&
+    !currentMessage.userInputMessage.userInputMessageContext?.tools
+  ) {
+    currentMessage.userInputMessage.userInputMessageContext = {
+      ...(currentMessage.userInputMessage.userInputMessageContext || {}),
+      tools: firstUser.userInputMessage.userInputMessageContext.tools,
+    };
   }
 
   // Merge consecutive user turns (can happen after assistant→tool→user).
@@ -408,9 +410,10 @@ export function buildKiroPayload(
 
   const { history, currentMessage } = convertMessages(messages, tools, options.model);
 
-  const originalCurrentContent = currentMessage?.userInputMessage?.content || "";
   const timestamp = new Date().toISOString();
-  const finalContent = `[Context: Current time is ${timestamp}]\n\n${originalCurrentContent}`;
+  const finalContent = `[Context: Current time is ${timestamp}]\n\n${
+    currentMessage?.userInputMessage?.content || ""
+  }`;
 
   const payload: KiroPayload = {
     conversationState: {
@@ -431,14 +434,11 @@ export function buildKiroPayload(
   };
 
   // Deterministic conversationId: hash of the first user content so AWS
-  // Builder ID can keep its context cache hot across our requests. Use the
-  // ORIGINAL message text (without the time-stamped prefix) so the id stays
-  // stable across calls — even when the conversation has just one turn and
-  // there is no history[0] to fall back to.
+  // Builder ID can keep its context cache hot across our requests.
   const firstUser = history[0] ? asUserMsg(history[0]) : null;
-  const firstContent = firstUser?.userInputMessage.content || originalCurrentContent;
+  const firstContent = firstUser?.userInputMessage.content || finalContent;
   payload.conversationState.conversationId = uuidv5(
-    (firstContent || "continue").substring(0, 4000),
+    (firstContent || "").substring(0, 4000),
     KIRO_NAMESPACE
   );
 
