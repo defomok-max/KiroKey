@@ -40,14 +40,13 @@ async function main() {
       ? "env"
       : "file"
     : "none";
-  const serverMode = process.env.KIRO_SERVER_MODE === "1";
   log.info("kiro-router: starting", {
     port: cfg.port,
     host: cfg.host,
     password: passwordSource,
     tokenDir: cfg.kiroTokenDir,
     refreshLead: cfg.refreshLeadSeconds,
-    serverMode,
+    serverMode: cfg.serverMode,
   });
 
   // Loud banner when bound to all interfaces without auth — anyone who can
@@ -75,12 +74,12 @@ async function main() {
     });
   }
 
-  if (serverMode && !cfg.apiKey) {
+  if (cfg.serverMode && !cfg.apiKey) {
     log.error("kiro-router: API_KEY is required when KIRO_SERVER_MODE=1");
     process.exit(1);
   }
 
-  const strategyRaw = process.env.KIRO_STRATEGY || "round-robin";
+  const strategyRaw = (process.env.KIRO_STRATEGY || "round-robin").trim().toLowerCase();
   const strategy: RoutingStrategy =
     strategyRaw === "round-robin" || strategyRaw === "least-used" || strategyRaw === "priority"
       ? strategyRaw
@@ -148,7 +147,10 @@ async function main() {
     });
   });
 
+  let shuttingDown = false;
   const shutdown = async (sig: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
     log.info("server: shutting down", { signal: sig });
     await manager.stop();
     server.close(() => process.exit(0));

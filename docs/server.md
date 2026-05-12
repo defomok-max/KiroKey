@@ -29,6 +29,7 @@ docker compose logs -f kiro-router
 For a headless server, set `KIRO_REFRESH_TOKEN` in `.env`. If you copied Kiro's
 AWS SSO JSON files to the server, place them in `./server-data/aws-sso-cache` or
 set `KIRO_TOKEN_DIR=/absolute/path/to/cache` before running Compose.
+Compose creates the default local cache directory automatically if it is missing.
 
 Health check:
 

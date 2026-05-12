@@ -254,6 +254,7 @@ or export them directly.
 | `KIRO_PROFILE_ARN`          | _(unset)_           | Profile ARN for IDC users                                |
 | `KIRO_REFRESH_LEAD_SECONDS` | `300`               | Refresh tokens this many seconds before expiry           |
 | `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                |
+| `KIRO_SERVER_MODE`          | `false`             | Require `API_KEY` and use server-safe token dir defaults |
 | `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                      |
 
 ## Integration recipes

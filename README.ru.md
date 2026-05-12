@@ -255,6 +255,7 @@ pm2 startup   # выполни выведенную команду
 | `KIRO_PROFILE_ARN`          | _(не задан)_        | Profile ARN (для IDC юзеров)                                   |
 | `KIRO_REFRESH_LEAD_SECONDS` | `300`               | За сколько секунд до экспирации рефрешить токены               |
 | `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                      |
+| `KIRO_SERVER_MODE`          | `false`             | Требует `API_KEY` и включает server-safe token dir defaults     |
 | `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                            |
 
 ## Подключение

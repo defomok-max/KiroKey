@@ -154,7 +154,9 @@ test("loadConfig uses server defaults without reading local token cache", () => 
   try {
     process.env.KIRO_SERVER_MODE = "1";
     delete process.env.KIRO_TOKEN_DIR;
-    assert.equal(loadConfig().kiroTokenDir, "/data/aws-sso-cache");
+    const cfg = loadConfig();
+    assert.equal(cfg.serverMode, true);
+    assert.equal(cfg.kiroTokenDir, "/data/aws-sso-cache");
   } finally {
     if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
     else process.env.KIRO_SERVER_MODE = oldServerMode;
@@ -169,7 +171,26 @@ test("loadConfig keeps explicit token dir in server mode", () => {
   try {
     process.env.KIRO_SERVER_MODE = "true";
     process.env.KIRO_TOKEN_DIR = "/custom/cache";
-    assert.equal(loadConfig().kiroTokenDir, "/custom/cache");
+    const cfg = loadConfig();
+    assert.equal(cfg.serverMode, true);
+    assert.equal(cfg.kiroTokenDir, "/custom/cache");
+  } finally {
+    if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
+    else process.env.KIRO_SERVER_MODE = oldServerMode;
+    if (oldTokenDir === undefined) delete process.env.KIRO_TOKEN_DIR;
+    else process.env.KIRO_TOKEN_DIR = oldTokenDir;
+  }
+});
+
+test("loadConfig treats false-like server mode values as disabled", () => {
+  const oldServerMode = process.env.KIRO_SERVER_MODE;
+  const oldTokenDir = process.env.KIRO_TOKEN_DIR;
+  try {
+    process.env.KIRO_SERVER_MODE = "off";
+    delete process.env.KIRO_TOKEN_DIR;
+    const cfg = loadConfig();
+    assert.equal(cfg.serverMode, false);
+    assert.ok(!cfg.kiroTokenDir.startsWith("/data/"));
   } finally {
     if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
     else process.env.KIRO_SERVER_MODE = oldServerMode;

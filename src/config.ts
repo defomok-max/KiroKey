@@ -25,6 +25,7 @@ export interface Config {
   kiroProfileArn: string | null;
   refreshLeadSeconds: number;
   logLevel: "error" | "warn" | "info" | "debug";
+  serverMode: boolean;
 }
 
 function bool(key: string, fallback: boolean): boolean {
@@ -99,5 +100,6 @@ export function loadConfig(): Config {
     kiroProfileArn: strOrNull("KIRO_PROFILE_ARN"),
     refreshLeadSeconds: num("KIRO_REFRESH_LEAD_SECONDS", 300, { min: 0 }),
     logLevel,
+    serverMode,
   };
 }
