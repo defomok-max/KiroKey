@@ -27,6 +27,15 @@ export interface Config {
   logLevel: "error" | "warn" | "info" | "debug";
 }
 
+function bool(key: string, fallback: boolean): boolean {
+  const raw = process.env[key];
+  if (!raw) return fallback;
+  const normalized = raw.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
+
 function num(key: string, fallback: number, opts?: { min?: number; max?: number }): number {
   const raw = process.env[key];
   if (!raw) return fallback;
@@ -75,13 +84,17 @@ export function loadConfig(): Config {
   // Password resolution priority: env (API_KEY or PASSWORD) > persisted file.
   // PASSWORD is an alias of API_KEY so users have a familiar name to type.
   const envKey = strOrNull("API_KEY") || strOrNull("PASSWORD");
-  const apiKey = envKey ?? readStoredPassword();
+  const serverMode = bool("KIRO_SERVER_MODE", false);
+  const apiKey = envKey ?? (serverMode ? null : readStoredPassword());
 
   return {
     port: num("PORT", 11437, { min: MIN_PORT, max: MAX_PORT }),
     host: str("HOST", "0.0.0.0"),
     apiKey,
-    kiroTokenDir: str("KIRO_TOKEN_DIR", join(homedir(), ".aws", "sso", "cache")),
+    kiroTokenDir: str(
+      "KIRO_TOKEN_DIR",
+      serverMode ? "/data/aws-sso-cache" : join(homedir(), ".aws", "sso", "cache")
+    ),
     kiroRefreshToken: strOrNull("KIRO_REFRESH_TOKEN"),
     kiroProfileArn: strOrNull("KIRO_PROFILE_ARN"),
     refreshLeadSeconds: num("KIRO_REFRESH_LEAD_SECONDS", 300, { min: 0 }),

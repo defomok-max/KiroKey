@@ -50,3 +50,7 @@ jobs:
 
       - name: Package dry-run
         run: npm pack --dry-run
+
+      - name: Validate Docker build
+        if: matrix.node-version == '22.x'
+        run: docker build .

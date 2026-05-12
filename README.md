@@ -167,7 +167,7 @@ filesystem watching. Verify with:
 curl http://127.0.0.1:11437/admin/accounts | jq
 ```
 
-### Headless / Docker / remote box
+### Server / Docker / remote box
 
 If you can't run Kiro IDE on the same machine, copy the `refreshToken` from
 `~/.aws/sso/cache/kiro-auth-token.json` on your laptop and set:
@@ -178,6 +178,25 @@ export KIRO_REFRESH_TOKEN="aorAAAAAG..."
 ```
 
 The router will use that single account.
+
+For production-style server deployment, use the included Docker Compose or
+systemd setup:
+
+```bash
+cp deploy/kiro-router.env.example .env
+$EDITOR .env
+docker compose up -d --build
+```
+
+Or install as a Linux systemd service:
+
+```bash
+sudo sh deploy/install-systemd.sh
+sudoedit /etc/kiro-router.env
+sudo systemctl start kiro-router
+```
+
+See [docs/server.md](docs/server.md) for the full VPS/server guide.
 
 ## Run forever (optional)
 

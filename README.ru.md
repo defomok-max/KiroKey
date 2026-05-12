@@ -168,7 +168,7 @@ filesystem watching. Проверка:
 curl http://127.0.0.1:11437/admin/accounts | jq
 ```
 
-### Headless / Docker / удалённая машина
+### Сервер / Docker / удалённая машина
 
 Если на сервере нельзя запустить Kiro IDE, скопируй `refreshToken` из
 `~/.aws/sso/cache/kiro-auth-token.json` на своём ноуте и задай:
@@ -179,6 +179,25 @@ export KIRO_REFRESH_TOKEN="aorAAAAAG..."
 ```
 
 Роутер использует этот единственный аккаунт.
+
+Для нормального запуска на сервере используй готовый Docker Compose или
+systemd setup:
+
+```bash
+cp deploy/kiro-router.env.example .env
+$EDITOR .env
+docker compose up -d --build
+```
+
+Или как Linux systemd service:
+
+```bash
+sudo sh deploy/install-systemd.sh
+sudoedit /etc/kiro-router.env
+sudo systemctl start kiro-router
+```
+
+Полная инструкция для VPS/сервера: [docs/server.md](docs/server.md).
 
 ## Запуск как сервиса (опционально)
 

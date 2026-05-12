@@ -148,6 +148,21 @@ test("loadConfig rejects partially numeric values", () => {
   }
 });
 
+test("loadConfig uses server defaults without reading local token cache", () => {
+  const oldServerMode = process.env.KIRO_SERVER_MODE;
+  const oldTokenDir = process.env.KIRO_TOKEN_DIR;
+  try {
+    process.env.KIRO_SERVER_MODE = "1";
+    delete process.env.KIRO_TOKEN_DIR;
+    assert.equal(loadConfig().kiroTokenDir, "/data/aws-sso-cache");
+  } finally {
+    if (oldServerMode === undefined) delete process.env.KIRO_SERVER_MODE;
+    else process.env.KIRO_SERVER_MODE = oldServerMode;
+    if (oldTokenDir === undefined) delete process.env.KIRO_TOKEN_DIR;
+    else process.env.KIRO_TOKEN_DIR = oldTokenDir;
+  }
+});
+
 test("buildKiroPayload preserves image placeholders", () => {
   const payload = buildKiroPayload(
     {

@@ -1,7 +1,7 @@
 # Convenience targets for kiro-router.
 # Each target is independent — install, build, run, test as needed.
 
-.PHONY: install ci build start dev test typecheck lint pack-check check clean
+.PHONY: install ci build start dev test typecheck lint pack-check docker-build check clean
 
 install:
 	npm install
@@ -29,6 +29,9 @@ lint:
 
 pack-check:
 	npm pack --dry-run
+
+docker-build:
+	docker build .
 
 check:
 	npm run check

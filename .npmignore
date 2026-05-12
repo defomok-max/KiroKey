@@ -1,6 +1,10 @@
 .github/
 .devin-notes/
 test/
+server-data/
+docker-compose.yml
+Dockerfile
+.dockerignore
 dist/**/*.map
 src/**/*.map
 *.log
