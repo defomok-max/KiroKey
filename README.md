@@ -380,6 +380,8 @@ npm run build
 node dist/server.js
 ```
 
+Commit `package-lock.json` when dependencies change so CI and local installs resolve the same toolchain.
+
 ## Security
 
 - The proxy binds to `0.0.0.0` by default. **Set a password** (see [Set a

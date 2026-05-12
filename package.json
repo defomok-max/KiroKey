@@ -12,6 +12,7 @@
     "start": "tsx src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start:dist": "node dist/server.js",
+    "prepack": "npm run build",
     "test": "node --import tsx/esm --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "echo 'no lint configured (kept dependency-light)'",
