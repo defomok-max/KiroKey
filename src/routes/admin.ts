@@ -11,7 +11,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 import type { AccountManager } from "../kiro/accountManager.js";
-import { readJson, sendJson, sendError } from "../http/util.js";
+import { HttpRequestError, readJson, sendJson, sendError } from "../http/util.js";
 
 function redact(token: string | null): string | null {
   if (!token) return null;
@@ -65,7 +65,15 @@ export async function handleLinkAccount(
   res: ServerResponse,
   manager: AccountManager
 ): Promise<void> {
-  const body = await readJson(req);
+  let body: unknown;
+  try {
+    body = await readJson(req);
+  } catch (err) {
+    if (err instanceof HttpRequestError) {
+      return sendError(res, err.status, err.code, err.message);
+    }
+    return sendError(res, 400, "invalid_request", (err as Error).message);
+  }
   if (!body || typeof body !== "object" || Array.isArray(body)) {
     return sendError(res, 400, "invalid_request", "expected JSON object");
   }
@@ -74,13 +82,17 @@ export async function handleLinkAccount(
   if (method !== "google" && method !== "github" && method !== "builder-id" && method !== "idc") {
     return sendError(res, 400, "invalid_request", "method must be google, github, builder-id, or idc");
   }
+  const timeoutSec = parseTimeoutSec(data.timeoutSec);
+  if (timeoutSec === null) {
+    return sendError(res, 400, "invalid_request", "timeoutSec must be a positive number");
+  }
   const account = await manager.link({
     method,
     label: typeof data.label === "string" ? data.label : undefined,
     startUrl: typeof data.startUrl === "string" ? data.startUrl : undefined,
     region: typeof data.region === "string" ? data.region : undefined,
     openBrowser: typeof data.openBrowser === "boolean" ? data.openBrowser : true,
-    timeoutMs: typeof data.timeoutSec === "number" ? data.timeoutSec * 1000 : undefined,
+    timeoutMs: timeoutSec === undefined ? undefined : timeoutSec * 1000,
   });
   sendJson(res, 201, {
     account: {
@@ -93,6 +105,12 @@ export async function handleLinkAccount(
       expiresAt: account.expiresAt ? new Date(account.expiresAt).toISOString() : null,
     },
   });
+}
+
+function parseTimeoutSec(value: unknown): number | undefined | null {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return null;
+  return Math.floor(value);
 }
 
 export async function handleRefresh(

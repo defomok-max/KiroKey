@@ -16,7 +16,7 @@ Claude Code — в любой инструмент, который умеет г
    `~/.aws/sso/cache/kiro-auth-token.json`. Можешь логиниться в несколько
    аккаунтов Kiro — KiroKey подхватит их все и будет ротировать запросы
    между ними.
-   Или используй `npm run add-account -- --google` / `--github` /
+   Или используй `./start.sh --add-account --google` / `--github` /
    `--builder-id`: откроется браузер, ты авторизуешься, аккаунт привяжется.
 
 2. **Склонируй + запусти** (нужен Node ≥ 20):
@@ -139,7 +139,8 @@ npm install
 | `start.cmd`         | То же самое на Windows                              |
 | `make start`        | То же через Make                                    |
 | `npm run check` / `make check` | Typecheck, тесты, build, lint placeholder, package dry-run |
-| `npm run add-account -- --google` | Открыть браузер и привязать ещё один аккаунт |
+| `./start.sh --add-account --google` | Открыть браузер и привязать ещё один аккаунт |
+| `npm run add-account -- --google` | То же через npm                               |
 | `npm start`         | Просто запуск (зависимости уже стоят)               |
 | `npm run dev`       | Запуск с автоперезагрузкой при изменении кода       |
 | `npm run build`     | Скомпилировать TypeScript → `dist/`                 |
@@ -176,7 +177,9 @@ npm run add-account -- --idc --start-url https://example.awsapps.com/start --reg
 
 Полезные флаги: `--label name` для имени аккаунта, `--no-browser` на удалённом
 сервере (выведет URL/code вместо открытия браузера), `--cache-dir PATH` для
-кастомного `KIRO_TOKEN_DIR`. Если сервер уже запущен, перезагрузи аккаунты:
+кастомного `KIRO_TOKEN_DIR`. `./start.sh --add-account --google` запускает тот
+же flow, но сначала сам поставит зависимости. Если сервер уже запущен,
+перезагрузи аккаунты:
 
 ```bash
 curl -X POST -H "Authorization: Bearer <password>" http://127.0.0.1:11437/admin/reload

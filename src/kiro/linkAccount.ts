@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { mkdir, writeFile, chmod } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 
 import { refreshAccount } from "./auth.js";
@@ -14,7 +14,10 @@ const DEFAULT_REGION = "us-east-1";
 const SOCIAL_CALLBACK_PATH = "/oauth/callback";
 const SOCIAL_DEFAULT_PORT = 9876;
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
+const MIN_TIMEOUT_MS = 30 * 1000;
+const MAX_TIMEOUT_MS = 30 * 60 * 1000;
 const POLLING_MARGIN_MS = 3000;
+const FETCH_TIMEOUT_MS = 30 * 1000;
 const USER_AGENT = "kiro-router";
 const AWS_DEVICE_GRANT = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -88,8 +91,8 @@ interface AwsTokenResponse {
 }
 
 export async function linkAccount(options: LinkAccountOptions): Promise<LinkAccountResult> {
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const cacheDir = options.cacheDir ?? defaultCacheDir();
+  const timeoutMs = normalizeTimeoutMs(options.timeoutMs);
+  const cacheDir = resolve(options.cacheDir ?? defaultCacheDir());
   const openBrowser = options.openBrowser ?? true;
 
   const token =
@@ -114,7 +117,8 @@ export function linkedAccountId(token: Pick<TokenPayload, "refreshToken" | "auth
 }
 
 export function tokenPathForAccount(cacheDir: string, accountId: string): string {
-  return join(cacheDir, `${safeFileName(accountId)}.json`);
+  const root = resolve(cacheDir);
+  return join(root, `${safeFileName(accountId)}.json`);
 }
 
 async function accountFromToken(token: TokenPayload, label?: string): Promise<KiroAccount> {
@@ -154,9 +158,11 @@ async function accountFromToken(token: TokenPayload, label?: string): Promise<Ki
 }
 
 async function saveLinkedToken(cacheDir: string, accountId: string, token: TokenPayload): Promise<string> {
-  await mkdir(cacheDir, { recursive: true, mode: 0o700 });
-  await chmod(cacheDir, 0o700).catch(() => undefined);
-  const path = tokenPathForAccount(cacheDir, accountId);
+  const root = resolve(cacheDir);
+  await mkdir(root, { recursive: true, mode: 0o700 });
+  await chmod(root, 0o700).catch(() => undefined);
+  const path = tokenPathForAccount(root, accountId);
+  if (!path.startsWith(`${root}/`)) throw new Error("token path escaped cache dir");
   await writeFile(path, `${JSON.stringify(token, null, 2)}\n`, { mode: 0o600 });
   await chmod(path, 0o600).catch(() => undefined);
   return path;
@@ -208,7 +214,7 @@ async function exchangeSocialCode(
   codeVerifier: string,
   redirectUri: string
 ): Promise<{ accessToken: string; refreshToken: string; expiresIn: number; profileArn?: string }> {
-  const res = await fetch(`${KIRO_AUTH_ENDPOINT}/oauth/token`, {
+  const res = await fetchWithTimeout(`${KIRO_AUTH_ENDPOINT}/oauth/token`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -222,7 +228,7 @@ async function exchangeSocialCode(
     }),
   });
   const body = await safeJson(res);
-  if (!res.ok) throw new Error(`token exchange failed: status=${res.status}`);
+  if (!res.ok) throw new Error(`token exchange failed: status=${res.status} ${formatRemoteError(body)}`);
   return {
     accessToken: requiredString(body.accessToken, "accessToken"),
     refreshToken: requiredString(body.refreshToken, "refreshToken"),
@@ -265,7 +271,7 @@ async function registerAwsClientForStartUrl(
   oidc: string,
   startUrl: string
 ): Promise<AwsClientRegistration> {
-  const res = await fetch(`${oidc}/client/register`, {
+  const res = await fetchWithTimeout(`${oidc}/client/register`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -280,7 +286,7 @@ async function registerAwsClientForStartUrl(
     }),
   });
   const body = await safeJson(res);
-  if (!res.ok) throw new Error(`OIDC client registration failed: status=${res.status}`);
+  if (!res.ok) throw new Error(`OIDC client registration failed: status=${res.status} ${formatRemoteError(body)}`);
   return {
     clientId: requiredString(body.clientId, "clientId"),
     clientSecret: requiredString(body.clientSecret, "clientSecret"),
@@ -294,7 +300,7 @@ async function startAwsDeviceAuthorization(
   client: AwsClientRegistration,
   startUrl: string
 ): Promise<AwsDeviceAuthorization> {
-  const res = await fetch(`${oidc}/device_authorization`, {
+  const res = await fetchWithTimeout(`${oidc}/device_authorization`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -307,7 +313,7 @@ async function startAwsDeviceAuthorization(
     }),
   });
   const body = await safeJson(res);
-  if (!res.ok) throw new Error(`device authorization failed: status=${res.status}`);
+  if (!res.ok) throw new Error(`device authorization failed: status=${res.status} ${formatRemoteError(body)}`);
   return {
     deviceCode: requiredString(body.deviceCode, "deviceCode"),
     userCode: requiredString(body.userCode, "userCode"),
@@ -332,7 +338,7 @@ async function pollAwsDeviceToken(
   const deadline = Date.now() + Math.min(timeoutMs, (device.expiresIn ?? 600) * 1000);
   for (;;) {
     if (Date.now() > deadline) throw new Error("authentication timed out");
-    const res = await fetch(`${oidc}/token`, {
+    const res = await fetchWithTimeout(`${oidc}/token`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -348,12 +354,12 @@ async function pollAwsDeviceToken(
     const body = await safeJson(res);
     if (res.ok) return body;
     if (body.error === "authorization_pending") {
-      await sleep(interval * 1000 + POLLING_MARGIN_MS);
+      await sleepUntilOrDeadline(interval * 1000 + POLLING_MARGIN_MS, deadline);
       continue;
     }
     if (body.error === "slow_down") {
       interval += 5;
-      await sleep(interval * 1000 + POLLING_MARGIN_MS);
+      await sleepUntilOrDeadline(interval * 1000 + POLLING_MARGIN_MS, deadline);
       continue;
     }
     throw new Error(
@@ -467,6 +473,16 @@ function openBrowserUrl(url: string): void {
   child.unref();
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit): Promise<Response> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: ac.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function safeJson(res: Response): Promise<Record<string, unknown>> {
   try {
     const text = await res.text();
@@ -488,6 +504,20 @@ function optionalNumber(value: unknown): number | undefined {
 function expiresInSeconds(value: unknown): number {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return 3600;
   return Math.min(Math.floor(value), 24 * 60 * 60);
+}
+
+function normalizeTimeoutMs(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_TIMEOUT_MS;
+  if (!Number.isFinite(value) || value <= 0) throw new Error("timeout must be positive");
+  return Math.min(Math.max(Math.floor(value), MIN_TIMEOUT_MS), MAX_TIMEOUT_MS);
+}
+
+function formatRemoteError(body: Record<string, unknown>): string {
+  const detail =
+    (typeof body.error_description === "string" && body.error_description) ||
+    (typeof body.message === "string" && body.message) ||
+    (typeof body.error === "string" && body.error);
+  return detail ? `(${detail.slice(0, 200)})` : "";
 }
 
 function extractLabel(token: TokenPayload): string | null {
@@ -553,6 +583,11 @@ function escapeHtml(value: string): string {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function sleepUntilOrDeadline(ms: number, deadline: number): Promise<void> {
+  const remaining = Math.max(0, deadline - Date.now());
+  await sleep(Math.min(ms, remaining));
 }
 
 interface Deferred<T> {

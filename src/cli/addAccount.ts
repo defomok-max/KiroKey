@@ -1,5 +1,8 @@
 import { linkAccount, type LinkAccountOptions } from "../kiro/linkAccount.js";
 
+const MIN_TIMEOUT_SEC = 30;
+const MAX_TIMEOUT_SEC = 30 * 60;
+
 export async function runAddAccountCli(argv: string[]): Promise<void> {
   const options = parseArgs(argv);
   const result = await linkAccount({ ...options, out: process.stdout });
@@ -18,7 +21,7 @@ function usage(code = 1): never {
 Options:
   --no-browser       Print the login URL/code but do not open a browser
   --cache-dir PATH   Write token JSON files to this cache dir
-  --timeout SEC      Login timeout in seconds (default 600)
+  --timeout SEC      Login timeout in seconds (30..1800, default 600)
 `);
   process.exit(code);
 }
@@ -53,8 +56,12 @@ function parseArgs(argv: string[]): LinkAccountOptions {
         options.cacheDir = value(argv, ++i, arg);
         break;
       case "--timeout": {
-        const seconds = Number.parseInt(value(argv, ++i, arg), 10);
-        if (!Number.isFinite(seconds) || seconds <= 0) usage();
+        const raw = value(argv, ++i, arg);
+        const seconds = Number.parseInt(raw, 10);
+        if (`${seconds}` !== raw || seconds < MIN_TIMEOUT_SEC || seconds > MAX_TIMEOUT_SEC) {
+          process.stderr.write(`--timeout must be an integer from ${MIN_TIMEOUT_SEC} to ${MAX_TIMEOUT_SEC}\n`);
+          usage();
+        }
         options.timeoutMs = seconds * 1000;
         break;
       }

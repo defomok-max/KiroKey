@@ -26,6 +26,11 @@ test("tokenPathForAccount keeps linked token files inside the cache dir", () => 
   assert.equal(path, "/safe/cache/.._linked:Google:abc.json");
 });
 
+test("tokenPathForAccount normalizes relative cache dirs", () => {
+  const path = tokenPathForAccount("relative/cache", "linked:Google:abc");
+  assert.match(path, /\/relative\/cache\/linked:Google:abc\.json$/);
+});
+
 test("link account constants use Kiro-compatible OAuth settings", () => {
   assert.equal(LINK_ACCOUNT_INTERNALS.BUILDER_ID_START_URL, "https://view.awsapps.com/start");
   assert.equal(LINK_ACCOUNT_INTERNALS.SOCIAL_CALLBACK_PATH, "/oauth/callback");

@@ -14,7 +14,7 @@ Cline, Continue.dev, Roo Code, Claude Code, or any tool that speaks
 1. **Log into Kiro IDE once** (https://kiro.dev) so it writes
    `~/.aws/sso/cache/kiro-auth-token.json`. You can log into multiple
    Kiro accounts — KiroKey will pick up all of them and rotate between them.
-   Or use `npm run add-account -- --google` / `--github` / `--builder-id`
+   Or use `./start.sh --add-account --google` / `--github` / `--builder-id`
    to open a browser login and bind an account directly.
 
 2. **Clone + start** (needs Node ≥ 20):
@@ -138,7 +138,8 @@ you can:
 | `start.cmd`       | Same as above on Windows                              |
 | `make start`      | Same, via Make                                        |
 | `npm run check` / `make check` | Run typecheck, tests, build, lint placeholder, package dry-run |
-| `npm run add-account -- --google` | Open browser login and bind one more account          |
+| `./start.sh --add-account --google` | Open browser login and bind one more account        |
+| `npm run add-account -- --google` | Same account-linking command through npm             |
 | `npm start`       | Just start (assumes deps installed)                   |
 | `npm run dev`     | Start with auto-reload on source changes              |
 | `npm run build`   | Compile TypeScript → `dist/`                          |
@@ -175,7 +176,8 @@ npm run add-account -- --idc --start-url https://example.awsapps.com/start --reg
 
 Use `--label name` to name the account, `--no-browser` on a remote server to
 print the URL/code instead of opening a local browser, and `--cache-dir PATH` to
-write into a custom `KIRO_TOKEN_DIR`. If the server is already running, reload:
+write into a custom `KIRO_TOKEN_DIR`. `./start.sh --add-account --google` is the
+same flow with auto-install first. If the server is already running, reload:
 
 ```bash
 curl -X POST -H "Authorization: Bearer <password>" http://127.0.0.1:11437/admin/reload

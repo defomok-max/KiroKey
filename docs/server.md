@@ -55,7 +55,8 @@ npm run add-account -- --idc --start-url https://example.awsapps.com/start --reg
 ```
 
 Open the printed URL in any browser, authorize the account, then restart the
-service or call `POST /admin/reload`. For systemd, use:
+service or call `POST /admin/reload`. The `./start.sh --add-account --builder-id --no-browser ...`
+wrapper also works and will install dependencies first. For systemd, use:
 
 ```bash
 sudo -u kiro-router -H node /opt/KiroKey/dist/addAccount.js --builder-id --no-browser --cache-dir /var/lib/kiro-router/aws-sso-cache
