@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import { buildKiroPayload } from "../src/kiro/request.js";
+import { loadConfig } from "../src/config.js";
 
 test("buildKiroPayload moves the last user turn to currentMessage", () => {
   const payload = buildKiroPayload(
@@ -117,4 +118,21 @@ test("buildKiroPayload converts assistant tool_calls + user tool_result", () => 
       "Tell me about the first one"
     )
   );
+});
+
+test("loadConfig rejects invalid port and negative refresh lead", () => {
+  const oldPort = process.env.PORT;
+  const oldLead = process.env.KIRO_REFRESH_LEAD_SECONDS;
+  try {
+    process.env.PORT = "99999";
+    process.env.KIRO_REFRESH_LEAD_SECONDS = "-5";
+    const cfg = loadConfig();
+    assert.equal(cfg.port, 11437);
+    assert.equal(cfg.refreshLeadSeconds, 300);
+  } finally {
+    if (oldPort === undefined) delete process.env.PORT;
+    else process.env.PORT = oldPort;
+    if (oldLead === undefined) delete process.env.KIRO_REFRESH_LEAD_SECONDS;
+    else process.env.KIRO_REFRESH_LEAD_SECONDS = oldLead;
+  }
 });

@@ -134,8 +134,7 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       // Token might be stale even though we thought it was fresh — refresh once
       // and retry on the same account.
       try {
-        await manager.refreshOne(account);
-        accessToken = account.accessToken || accessToken;
+        accessToken = await manager.refreshAndGetToken(account);
         const retry = await postKiro({ accessToken, payload, signal });
         if (retry.status >= 200 && retry.status < 300) {
           return finalizeSuccess(retry, account, wantStream, request.model, manager);

@@ -8,14 +8,35 @@ import type { Readable } from "node:stream";
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
 
+export class HttpRequestError extends Error {
+  status: number;
+  code: string;
+
+  constructor(status: number, code: string, message: string) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 export async function readJson(req: IncomingMessage): Promise<unknown> {
+  const contentType = req.headers["content-type"];
+  const contentTypes = Array.isArray(contentType) ? contentType : contentType ? [contentType] : [];
+  if (
+    req.method !== "GET" &&
+    contentTypes.length > 0 &&
+    !contentTypes.some((value) => value.toLowerCase().includes("application/json"))
+  ) {
+    throw new HttpRequestError(415, "unsupported_media_type", "content-type must be application/json");
+  }
+
   const parts: Buffer[] = [];
   let total = 0;
   for await (const chunk of req) {
     const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as ArrayBufferView["buffer"]);
     total += buf.length;
     if (total > MAX_BODY_BYTES) {
-      throw new Error(`request body too large (>${MAX_BODY_BYTES} bytes)`);
+      throw new HttpRequestError(413, "request_too_large", `request body too large (>${MAX_BODY_BYTES} bytes)`);
     }
     parts.push(buf);
   }
@@ -24,7 +45,7 @@ export async function readJson(req: IncomingMessage): Promise<unknown> {
   try {
     return JSON.parse(text);
   } catch (err) {
-    throw new Error(`invalid JSON: ${(err as Error).message}`);
+    throw new HttpRequestError(400, "invalid_json", `invalid JSON: ${(err as Error).message}`);
   }
 }
 
@@ -87,7 +108,7 @@ export function handleCorsPreflight(req: IncomingMessage, res: ServerResponse): 
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Authorization, Content-Type, X-Api-Key, X-Stainless-Lang, anthropic-version, anthropic-beta",
+      "Authorization, Content-Type, X-Api-Key, X-Stainless-Lang, anthropic-version, anthropic-beta, anthropic-dangerous-direct-browser-access",
     "Access-Control-Max-Age": "600",
   });
   res.end();

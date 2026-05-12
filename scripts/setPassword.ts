@@ -16,7 +16,7 @@
 
 import { mkdirSync, writeFileSync, readFileSync, unlinkSync, existsSync } from "node:fs";
 import { dirname } from "node:path";
-import { createInterface } from "node:readline";
+import { createInterface, emitKeypressEvents, type Key } from "node:readline";
 import { randomBytes } from "node:crypto";
 import { passwordFilePath } from "../src/config.js";
 
@@ -41,20 +41,55 @@ function clearPassword(): void {
 }
 
 async function prompt(question: string, hidden: boolean): Promise<string> {
+  if (hidden && process.stdin.isTTY) {
+    return hiddenPrompt(question);
+  }
   const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
   return new Promise<string>((resolve) => {
-    if (hidden) {
-      // Mute output while user types.
-      const out = rl as unknown as { output: NodeJS.WritableStream; _writeToOutput?: (s: string) => void };
-      out._writeToOutput = (s: string) => {
-        if (s.includes(question)) out.output.write(s);
-      };
-    }
     rl.question(question, (answer) => {
       rl.close();
-      if (hidden) process.stdout.write("\n");
       resolve(answer);
     });
+  });
+}
+
+function hiddenPrompt(question: string): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    let value = "";
+    const input = process.stdin;
+    const wasRaw = input.isRaw;
+    process.stdout.write(question);
+    emitKeypressEvents(input);
+    input.setRawMode(true);
+    input.resume();
+
+    const cleanup = () => {
+      input.off("keypress", onKeypress);
+      input.setRawMode(wasRaw);
+      process.stdout.write("\n");
+    };
+
+    const onKeypress = (str: string, key: Key) => {
+      if (key.ctrl && key.name === "c") {
+        cleanup();
+        reject(new Error("cancelled"));
+        return;
+      }
+      if (key.name === "return" || key.name === "enter") {
+        cleanup();
+        resolve(value);
+        return;
+      }
+      if (key.name === "backspace") {
+        value = value.slice(0, -1);
+        return;
+      }
+      if (str && !key.ctrl && !key.meta) {
+        value += str;
+      }
+    };
+
+    input.on("keypress", onKeypress);
   });
 }
 

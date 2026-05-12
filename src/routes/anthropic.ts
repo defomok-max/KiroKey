@@ -26,7 +26,7 @@ import type {
   OpenAITool,
 } from "../kiro/request.js";
 import type { OpenAIChatCompletion } from "../kiro/response.js";
-import { readJson, sendError, sendJson, sendSseStream } from "../http/util.js";
+import { HttpRequestError, readJson, sendError, sendJson, sendSseStream } from "../http/util.js";
 import { KIRO_MODELS } from "../kiro/types.js";
 
 interface AnthropicMessagesRequest {
@@ -355,6 +355,9 @@ export async function handleMessages(
   try {
     body = (await readJson(req)) as AnthropicMessagesRequest;
   } catch (err) {
+    if (err instanceof HttpRequestError) {
+      return sendError(res, err.status, err.code, err.message);
+    }
     return sendError(res, 400, "invalid_request", (err as Error).message);
   }
   if (!body || !body.model || !Array.isArray(body.messages)) {
