@@ -188,6 +188,9 @@ $EDITOR .env
 docker compose up -d --build
 ```
 
+The example leaves `API_KEY` blank on purpose; set it before starting or Docker
+Compose will fail fast.
+
 Or install as a Linux systemd service:
 
 ```bash

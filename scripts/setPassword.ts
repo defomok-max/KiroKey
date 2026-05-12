@@ -157,7 +157,7 @@ async function main(): Promise<void> {
   writePassword(value);
   console.log("kiro-router: password saved to " + path + " (mode 0600).");
   console.log("Restart the server (npm start) for the new password to take effect.");
-  console.log("Clients must send: Authorization: Bearer " + value);
+  console.log("Clients must send: Authorization: Bearer <password>");
 }
 
 main().catch((err) => {

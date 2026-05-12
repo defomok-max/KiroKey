@@ -29,6 +29,7 @@ If you change deployment files, run:
 ```bash
 npm run check
 docker build .
+API_KEY=ci-placeholder docker compose config --quiet
 ```
 
 Also verify `deploy/kiro-router.env.example`, `docker-compose.yml`, and

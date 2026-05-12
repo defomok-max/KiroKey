@@ -26,6 +26,9 @@ docker compose up -d --build
 docker compose logs -f kiro-router
 ```
 
+`API_KEY` is intentionally blank in the example file. Compose and systemd will
+refuse to start until you set it.
+
 For a headless server, set `KIRO_REFRESH_TOKEN` in `.env`. If you copied Kiro's
 AWS SSO JSON files to the server, place them in `./server-data/aws-sso-cache` or
 set `KIRO_TOKEN_DIR=/absolute/path/to/cache` before running Compose.
@@ -53,6 +56,8 @@ sudo journalctl -u kiro-router -f
 The installer builds `dist/`, prunes dev dependencies, installs the unit, and
 creates `/etc/kiro-router.env` if it does not exist. It runs the service as the
 dedicated `kiro-router` system user with `HOME=/var/lib/kiro-router`.
+You can override `APP_DIR` and `RUN_USER` before running the installer; the
+generated unit will use those paths.
 
 For copied AWS SSO cache files:
 
