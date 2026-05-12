@@ -177,8 +177,11 @@ function parseExpiresAt(data: Record<string, unknown>): number {
     const parsed = Date.parse(data.expiresAt);
     if (Number.isFinite(parsed)) return parsed;
   }
-  if (typeof data.expiresIn === "number" && typeof data.registrationExpiresAt === "string") {
-    // Fallback heuristic; rare.
+  if (typeof data.expiresAt === "number" && Number.isFinite(data.expiresAt)) {
+    return data.expiresAt < 10_000_000_000 ? data.expiresAt * 1000 : data.expiresAt;
+  }
+  if (typeof data.expiresIn === "number" && Number.isFinite(data.expiresIn)) {
+    return Date.now() + data.expiresIn * 1000;
   }
   return 0;
 }

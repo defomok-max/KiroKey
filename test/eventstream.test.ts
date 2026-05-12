@@ -111,3 +111,20 @@ test("drainFrames skips a corrupted frame and continues with the next", () => {
   assert.equal(badCount, 1);
   assert.deepEqual(frames[0].payload, { content: "ok" });
 });
+
+test("drainFrames resynchronizes after invalid frame length", () => {
+  const good = buildFrame(
+    { ":event-type": "assistantResponseEvent" },
+    enc.encode(JSON.stringify({ content: "recovered" }))
+  );
+  const queue = new ByteQueue();
+  const combined = new Uint8Array(1 + good.length);
+  combined[0] = 0xff;
+  combined.set(good, 1);
+  queue.push(combined);
+  let badCount = 0;
+  const frames = drainFrames(queue, () => badCount++);
+  assert.equal(frames.length, 1);
+  assert.equal(badCount, 1);
+  assert.deepEqual(frames[0].payload, { content: "recovered" });
+});
