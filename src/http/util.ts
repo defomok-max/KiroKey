@@ -8,6 +8,13 @@ import type { Readable } from "node:stream";
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
 
+let corsOrigin = "*";
+
+/** Configure the CORS Access-Control-Allow-Origin value (set once at startup). */
+export function setCorsOrigin(value: string): void {
+  corsOrigin = value && value.trim() !== "" ? value.trim() : "*";
+}
+
 export async function readJson(req: IncomingMessage): Promise<unknown> {
   const parts: Buffer[] = [];
   let total = 0;
@@ -33,7 +40,8 @@ export function sendJson(res: ServerResponse, status: number, body: unknown): vo
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(data, "utf-8"),
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": corsOrigin,
+    Vary: "Origin",
   });
   res.end(data);
 }
@@ -42,7 +50,8 @@ export function sendText(res: ServerResponse, status: number, body: string): voi
   res.writeHead(status, {
     "Content-Type": "text/plain; charset=utf-8",
     "Content-Length": Buffer.byteLength(body, "utf-8"),
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": corsOrigin,
+    Vary: "Origin",
   });
   res.end(body);
 }
@@ -70,7 +79,8 @@ export async function sendSseStream(res: ServerResponse, body: Readable): Promis
     "Cache-Control": "no-cache, no-transform",
     Connection: "keep-alive",
     "X-Accel-Buffering": "no",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": corsOrigin,
+    Vary: "Origin",
   });
   try {
     await pipeline(body, res);
@@ -84,11 +94,12 @@ export async function sendSseStream(res: ServerResponse, body: Readable): Promis
 export function handleCorsPreflight(req: IncomingMessage, res: ServerResponse): boolean {
   if (req.method !== "OPTIONS") return false;
   res.writeHead(204, {
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": corsOrigin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Authorization, Content-Type, X-Api-Key, X-Stainless-Lang, anthropic-version, anthropic-beta",
+      "Authorization, Content-Type, X-Api-Key, X-Stainless-Lang, anthropic-version, anthropic-beta, Cache-Control",
     "Access-Control-Max-Age": "600",
+    Vary: "Origin",
   });
   res.end();
   return true;

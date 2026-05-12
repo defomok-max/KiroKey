@@ -78,8 +78,22 @@ export interface DispatchOptions {
   manager: AccountManager;
   /** Forwarded so client cancellations terminate the upstream socket. */
   signal?: AbortSignal;
-  /** Max accounts to try before giving up. Default = candidates.length, max 5. */
+  /** Max accounts to try before giving up. Default = candidates.length, capped. */
   maxAttempts?: number;
+}
+
+interface DispatchDefaults {
+  /** Hard cap on attempts per request. Defaults to 5; overridable via env. */
+  maxAttempts: number;
+}
+
+const dispatchDefaults: DispatchDefaults = { maxAttempts: 5 };
+
+/** Configure dispatch-level defaults (called from server.ts during startup). */
+export function setDispatchDefaults(partial: Partial<DispatchDefaults>): void {
+  if (typeof partial.maxAttempts === "number" && partial.maxAttempts >= 1) {
+    dispatchDefaults.maxAttempts = Math.min(partial.maxAttempts, 50);
+  }
 }
 
 export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResult> {
@@ -88,7 +102,11 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
   const wantStream = stream;
   const attempts: DispatchFailure["attempts"] = [];
   const excludeIds = new Set<string>();
-  const maxAttempts = Math.min(opts.maxAttempts ?? Math.max(1, manager.list().length), 5);
+  const fallbackCap = dispatchDefaults.maxAttempts;
+  const maxAttempts = Math.min(
+    opts.maxAttempts ?? Math.max(1, manager.list().length),
+    fallbackCap
+  );
 
   if (manager.list().length === 0) {
     throw new DispatchFailure(

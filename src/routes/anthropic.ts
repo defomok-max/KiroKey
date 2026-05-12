@@ -163,10 +163,41 @@ interface OpenAIDeltaChunk {
  * Convert an OpenAI SSE stream (Buffer chunks) into an Anthropic Messages
  * SSE stream. Returns a Node Readable yielding Buffers.
  */
+// Strip leading/trailing <thinking>...</thinking> wrappers that the OpenAI
+// converter emits for reasoningContentEvent. We re-route those chunks into a
+// proper Anthropic "thinking" content block instead of inlining them as text.
+const THINK_OPEN = "<thinking>";
+const THINK_CLOSE = "</thinking>";
+
+function splitThinking(text: string): { thinking: string; speech: string } {
+  let thinking = "";
+  let speech = "";
+  let rest = text;
+  while (rest.length > 0) {
+    const openIdx = rest.indexOf(THINK_OPEN);
+    if (openIdx === -1) {
+      speech += rest;
+      break;
+    }
+    speech += rest.slice(0, openIdx);
+    rest = rest.slice(openIdx + THINK_OPEN.length);
+    const closeIdx = rest.indexOf(THINK_CLOSE);
+    if (closeIdx === -1) {
+      // No close in this chunk — treat the rest as thinking
+      thinking += rest;
+      break;
+    }
+    thinking += rest.slice(0, closeIdx);
+    rest = rest.slice(closeIdx + THINK_CLOSE.length);
+  }
+  return { thinking, speech };
+}
+
 function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: string): Readable {
   return Readable.from(
     (async function* (): AsyncIterable<Buffer> {
       let textIndex = -1;
+      let thinkingIndex = -1;
       const toolIndexById = new Map<number, number>(); /* openai tool index → anthropic block index */
       let nextBlockIndex = 0;
       let messageStarted = false;
@@ -181,6 +212,59 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
 
       let buffered = "";
       const decoder = new TextDecoder();
+
+      const ensureMessageStart = function* (): IterableIterator<Buffer> {
+        if (!messageStarted) {
+          messageStarted = true;
+          yield sseEvent("message_start", {
+            type: "message_start",
+            message: {
+              id: messageId,
+              type: "message",
+              role: "assistant",
+              model,
+              content: [],
+              stop_reason: null,
+              stop_sequence: null,
+              usage: { input_tokens: 0, output_tokens: 0 },
+            },
+          });
+        }
+      };
+
+      const emitText = function* (text: string): IterableIterator<Buffer> {
+        if (!text) return;
+        if (textIndex === -1) {
+          textIndex = nextBlockIndex++;
+          yield sseEvent("content_block_start", {
+            type: "content_block_start",
+            index: textIndex,
+            content_block: { type: "text", text: "" },
+          });
+        }
+        yield sseEvent("content_block_delta", {
+          type: "content_block_delta",
+          index: textIndex,
+          delta: { type: "text_delta", text },
+        });
+      };
+
+      const emitThinking = function* (text: string): IterableIterator<Buffer> {
+        if (!text) return;
+        if (thinkingIndex === -1) {
+          thinkingIndex = nextBlockIndex++;
+          yield sseEvent("content_block_start", {
+            type: "content_block_start",
+            index: thinkingIndex,
+            content_block: { type: "thinking", thinking: "" },
+          });
+        }
+        yield sseEvent("content_block_delta", {
+          type: "content_block_delta",
+          index: thinkingIndex,
+          delta: { type: "thinking_delta", thinking: text },
+        });
+      };
 
       for await (const raw of openaiSse) {
         const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBufferView["buffer"]);
@@ -213,40 +297,15 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
             continue;
           }
 
-          if (!messageStarted) {
-            messageStarted = true;
-            yield sseEvent("message_start", {
-              type: "message_start",
-              message: {
-                id: messageId,
-                type: "message",
-                role: "assistant",
-                model,
-                content: [],
-                stop_reason: null,
-                stop_sequence: null,
-                usage: { input_tokens: 0, output_tokens: 0 },
-              },
-            });
-          }
+          yield* ensureMessageStart();
 
           for (const choice of parsed.choices) {
             const delta = choice.delta || {};
             const content = typeof delta.content === "string" ? delta.content : "";
             if (content) {
-              if (textIndex === -1) {
-                textIndex = nextBlockIndex++;
-                yield sseEvent("content_block_start", {
-                  type: "content_block_start",
-                  index: textIndex,
-                  content_block: { type: "text", text: "" },
-                });
-              }
-              yield sseEvent("content_block_delta", {
-                type: "content_block_delta",
-                index: textIndex,
-                delta: { type: "text_delta", text: content },
-              });
+              const { thinking, speech } = splitThinking(content);
+              if (thinking) yield* emitThinking(thinking);
+              if (speech) yield* emitText(speech);
             }
 
             for (const tc of delta.tool_calls || []) {
@@ -292,6 +351,9 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
       }
 
       // Close any open content blocks.
+      if (thinkingIndex !== -1) {
+        yield sseEvent("content_block_stop", { type: "content_block_stop", index: thinkingIndex });
+      }
       if (textIndex !== -1) {
         yield sseEvent("content_block_stop", { type: "content_block_stop", index: textIndex });
       }
@@ -314,7 +376,9 @@ function openAiJsonToAnthropicJson(j: OpenAIChatCompletion, model: string, messa
   const content: Array<Record<string, unknown>> = [];
   const msg = choice?.message;
   if (msg?.content && typeof msg.content === "string") {
-    content.push({ type: "text", text: msg.content });
+    const { thinking, speech } = splitThinking(msg.content);
+    if (thinking) content.push({ type: "thinking", thinking });
+    if (speech) content.push({ type: "text", text: speech });
   }
   if (msg?.tool_calls?.length) {
     for (const tc of msg.tool_calls) {

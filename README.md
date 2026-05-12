@@ -11,11 +11,21 @@ Cline, Continue.dev, Roo Code, Claude Code, or any tool that speaks
 
 ## TL;DR — 3 steps
 
-1. **Log into Kiro IDE once** (https://kiro.dev) so it writes
-   `~/.aws/sso/cache/kiro-auth-token.json`. You can log into multiple
-   Kiro accounts — KiroKey will pick up all of them and rotate between them.
+1. **Authenticate.** Two options:
 
-2. **Clone + start** (needs Node ≥ 20):
+   - **Built-in login (no Kiro IDE required)** — opens AWS Builder ID device-code
+     flow in your browser, then writes the token to the same cache file Kiro IDE
+     uses, so the proxy auto-picks it up:
+
+     ```bash
+     npm run login
+     ```
+
+   - **Or just log into Kiro IDE once** (https://kiro.dev) — Kiro writes
+     `~/.aws/sso/cache/kiro-auth-token.json` for you. You can log into multiple
+     Kiro accounts — KiroKey picks up all of them and rotates between them.
+
+2. **Clone + start** (needs Node ≥ 18):
 
    ```bash
    git clone https://github.com/defomok-max/KiroKey.git
@@ -103,9 +113,12 @@ single use case because it:
 | GET    | `/v1/models`                      | List Claude models exposed via Kiro                      |
 | GET    | `/health`                         | Liveness + per-state account summary                     |
 | GET    | `/admin/accounts`                 | Full per-account status (tokens redacted)                |
+| GET    | `/admin/stats`                    | Aggregate counters across all accounts                   |
 | POST   | `/admin/refresh`                  | Kick a proactive refresh sweep                           |
 | POST   | `/admin/reload`                   | Rescan `~/.aws/sso/cache` and merge new accounts         |
 | POST   | `/admin/accounts/:id/reset`       | Clear cool-downs / failure counters for one account      |
+| POST   | `/admin/accounts/:id/disable`     | Pause routing to this account without deleting state     |
+| POST   | `/admin/accounts/:id/enable`     | Resume routing to a previously disabled account          |
 
 Supported models (proxied to AWS CodeWhisperer):
 
@@ -125,7 +138,7 @@ cd KiroKey
 npm install
 ```
 
-Requires Node ≥ 20. Once dependencies are installed, you can:
+Requires Node ≥ 18. Once dependencies are installed, you can:
 
 | Command           | What it does                                          |
 | ----------------- | ----------------------------------------------------- |
@@ -135,17 +148,43 @@ Requires Node ≥ 20. Once dependencies are installed, you can:
 | `npm start`       | Just start (assumes deps installed)                   |
 | `npm run dev`     | Start with auto-reload on source changes              |
 | `npm run build`   | Compile TypeScript → `dist/`                          |
+| `npm run login`   | Built-in AWS Builder ID device-code login (writes `~/.aws/sso/cache/kiro-auth-token.json`) |
 | `npm test`        | Run unit tests                                        |
 | `npm run typecheck` | TypeScript check, no emit                           |
+| `npm run check`   | `typecheck` + scripts/tests typecheck + tests          |
 
 ## Getting Kiro tokens
 
-You need to log into Kiro IDE at least once so it writes its tokens to
-`~/.aws/sso/cache/`. KiroKey will pick up **every account** you've logged
-into and rotate between them.
+KiroKey picks up **every account** in `~/.aws/sso/cache/` and rotates between
+them. You have two ways to populate it:
 
-- **AWS Builder ID** (free, recommended) — install
+### Option A — built-in login (no Kiro IDE)
+
+Fastest path. Runs the standard AWS Builder ID device-code flow:
+
+```bash
+npm run login
+```
+
+Opens a verification URL in your browser. Log in once, the script saves the
+token to `~/.aws/sso/cache/kiro-auth-token.json` (mode `0600`) and the proxy
+auto-picks it up. Repeat for additional accounts (pass `--out=...` to write to
+a different file name).
+
+Flags / env:
+
+- `--no-open` — don't try to auto-launch a browser
+- `--region=<aws-region>` — default `us-east-1`
+- `--start-url=<url>` — IDC start URL (default: AWS Builder ID portal)
+- `--out=<path>` — custom token file path
+- `KIRO_REGION`, `KIRO_START_URL`, `KIRO_TOKEN_DIR`, `KIRO_TOKEN_FILE` —
+  environment overrides
+
+### Option B — Kiro IDE
+
+- **AWS Builder ID** (free) — install
   [Kiro IDE](https://kiro.dev), open it, click "Sign in with AWS Builder ID".
+  Kiro writes `~/.aws/sso/cache/kiro-auth-token.json`.
 - **Google / GitHub** (Cognito social login) — also supported.
 - **AWS Identity Center (IDC)** — enterprise, works too (set `KIRO_PROFILE_ARN`
   if needed).
@@ -227,7 +266,9 @@ or export them directly.
 | `KIRO_REFRESH_TOKEN`        | _(unset)_           | Single override account (for headless/Docker)            |
 | `KIRO_PROFILE_ARN`          | _(unset)_           | Profile ARN for IDC users                                |
 | `KIRO_REFRESH_LEAD_SECONDS` | `300`               | Refresh tokens this many seconds before expiry           |
-| `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority`                |
+| `KIRO_STRATEGY`             | `round-robin`       | `round-robin` / `least-used` / `priority` (invalid → warn + round-robin) |
+| `KIRO_MAX_ATTEMPTS`         | `5`                 | Max accounts tried per client request (`1`..`50`)        |
+| `CORS_ORIGIN`               | `*`                 | `Access-Control-Allow-Origin` for browser callers        |
 | `LOG_LEVEL`                 | `info`              | `error` / `warn` / `info` / `debug`                      |
 
 ## Integration recipes

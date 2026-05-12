@@ -14,13 +14,22 @@
     "start:dist": "node dist/server.js",
     "test": "node --import tsx/esm --test test/*.test.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck:all": "tsc -p tsconfig.scripts.json --noEmit",
+    "check": "npm run typecheck && npm run typecheck:all && npm test",
     "lint": "echo 'no lint configured (kept dependency-light)'",
+    "login": "tsx scripts/login.ts",
     "set-password": "tsx scripts/setPassword.ts",
     "clear-password": "tsx scripts/setPassword.ts --clear",
-    "show-password": "tsx scripts/setPassword.ts --show"
+    "show-password": "tsx scripts/setPassword.ts --show",
+    "prepublishOnly": "npm run check && npm run build"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md"
+  ],
   "engines": {
-    "node": ">=20"
+    "node": ">=18"
   },
   "dependencies": {},
   "devDependencies": {
