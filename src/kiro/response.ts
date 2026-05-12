@@ -123,6 +123,7 @@ function frameToChunks(frame: EventFrame, state: StreamState): OpenAIChunk[] {
   } else if (type === "reasoningContentEvent") {
     const content = typeof payload.content === "string" ? payload.content : "";
     if (content) {
+      state.totalContentLength += content.length;
       const delta =
         state.chunkIndex === 0
           ? { role: "assistant", content: `<thinking>${content}</thinking>` }
@@ -216,7 +217,7 @@ function buildFinishChunk(state: StreamState, includeUsage: boolean): OpenAIChun
     choices: [
       {
         index: 0,
-        delta: {},
+        delta: state.chunkIndex === 0 ? { role: "assistant" } : {},
         finish_reason: state.hasToolCalls ? "tool_calls" : "stop",
       },
     ],
@@ -324,6 +325,12 @@ export async function collectKiroAsOpenAIJson(
           content += c;
           state.totalContentLength += c.length;
         }
+      } else if (type === "reasoningContentEvent") {
+        const c = typeof payload.content === "string" ? payload.content : "";
+        if (c) {
+          content += `<thinking>${c}</thinking>`;
+          state.totalContentLength += c.length;
+        }
       } else if (type === "toolUseEvent") {
         state.hasToolCalls = true;
         const tools = Array.isArray(payload) ? payload : [payload];
@@ -358,11 +365,15 @@ export async function collectKiroAsOpenAIJson(
         const m = (payload.metricsEvent || payload) as Record<string, unknown>;
         const inputTokens = typeof m.inputTokens === "number" ? m.inputTokens : 0;
         const outputTokens = typeof m.outputTokens === "number" ? m.outputTokens : 0;
+        const cacheRead = typeof m.cacheReadTokens === "number" ? m.cacheReadTokens : 0;
+        const cacheCreate = typeof m.cacheCreationTokens === "number" ? m.cacheCreationTokens : 0;
         if (inputTokens > 0 || outputTokens > 0) {
           state.usage = {
             prompt_tokens: inputTokens,
             completion_tokens: outputTokens,
             total_tokens: inputTokens + outputTokens,
+            ...(cacheRead > 0 && { cache_read_input_tokens: cacheRead }),
+            ...(cacheCreate > 0 && { cache_creation_input_tokens: cacheCreate }),
           };
         }
       }

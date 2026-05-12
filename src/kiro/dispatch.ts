@@ -99,6 +99,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
   }
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (signal?.aborted) {
+      throw new DispatchFailure("client aborted request", attempts, 499);
+    }
     const account = manager.pick(excludeIds);
     if (!account) break;
 
@@ -107,6 +110,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       accessToken = await manager.ensureToken(account);
     } catch (err) {
       const e = err as Error;
+      if (signal?.aborted || e.message === "aborted") {
+        throw new DispatchFailure("client aborted request", attempts, 499);
+      }
       attempts.push({ accountId: account.id, status: 0, reason: `refresh failed: ${e.message}` });
       excludeIds.add(account.id);
       continue;
@@ -170,6 +176,9 @@ export async function dispatchChat(opts: DispatchOptions): Promise<DispatchResul
       } catch (err) {
         if (err instanceof DispatchFailure) throw err;
         const e = err as Error;
+        if (signal?.aborted || e.message === "aborted") {
+          throw new DispatchFailure("client aborted request", attempts, 499);
+        }
         attempts.push({ accountId: account.id, status: 0, reason: `auth-retry: ${e.message}` });
         excludeIds.add(account.id);
         continue;

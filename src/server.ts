@@ -15,6 +15,7 @@ import { AccountManager, type RoutingStrategy } from "./kiro/accountManager.js";
 import { warmUpstream } from "./kiro/client.js";
 import {
   getAuthBearer,
+  authTokenMatches,
   handleCorsPreflight,
   sendError,
   sendJson,
@@ -170,7 +171,7 @@ async function handle(
   // Auth check for everything else.
   if (apiKey) {
     const presented = getAuthBearer(req);
-    if (presented !== apiKey) {
+    if (!authTokenMatches(presented, apiKey)) {
       return sendError(res, 401, "unauthorized", "invalid or missing API key");
     }
   }

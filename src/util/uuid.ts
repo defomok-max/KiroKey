@@ -33,7 +33,7 @@ export function v5(name: string, namespace: string): string {
 
 function parseUuid(s: string): Buffer {
   const hex = s.replace(/-/g, "");
-  if (hex.length !== 32) throw new Error(`invalid uuid: ${s}`);
+  if (!/^[0-9a-fA-F]{32}$/.test(hex)) throw new Error(`invalid uuid: ${s}`);
   return Buffer.from(hex, "hex");
 }
 

@@ -20,6 +20,8 @@ import { createInterface, emitKeypressEvents, type Key } from "node:readline";
 import { randomBytes } from "node:crypto";
 import { passwordFilePath } from "../src/config.js";
 
+const MIN_PASSWORD_LENGTH = 8;
+
 function readPassword(): string | null {
   try {
     const raw = readFileSync(passwordFilePath(), "utf-8").trim();
@@ -140,11 +142,16 @@ async function main(): Promise<void> {
       console.error("kiro-router: passwords did not match. Nothing written.");
       process.exit(1);
     }
-    if (a.length < 8) {
-      console.error("kiro-router: password must be at least 8 characters. Nothing written.");
+    if (a.length < MIN_PASSWORD_LENGTH) {
+      console.error(`kiro-router: password must be at least ${MIN_PASSWORD_LENGTH} characters. Nothing written.`);
       process.exit(1);
     }
     value = a;
+  }
+
+  if (value.length < MIN_PASSWORD_LENGTH) {
+    console.error(`kiro-router: password must be at least ${MIN_PASSWORD_LENGTH} characters. Nothing written.`);
+    process.exit(1);
   }
 
   writePassword(value);

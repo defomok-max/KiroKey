@@ -5,6 +5,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { pipeline } from "node:stream/promises";
 import type { Readable } from "node:stream";
+import { createHash, timingSafeEqual } from "node:crypto";
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024; // 32 MiB
 
@@ -19,13 +20,18 @@ export class HttpRequestError extends Error {
   }
 }
 
+function isJsonContentType(value: string): boolean {
+  const mediaType = value.split(";", 1)[0].trim().toLowerCase();
+  return mediaType === "application/json" || mediaType.endsWith("+json");
+}
+
 export async function readJson(req: IncomingMessage): Promise<unknown> {
   const contentType = req.headers["content-type"];
   const contentTypes = Array.isArray(contentType) ? contentType : contentType ? [contentType] : [];
   if (
     req.method !== "GET" &&
     contentTypes.length > 0 &&
-    !contentTypes.some((value) => value.toLowerCase().includes("application/json"))
+    !contentTypes.some(isJsonContentType)
   ) {
     throw new HttpRequestError(415, "unsupported_media_type", "content-type must be application/json");
   }
@@ -121,4 +127,11 @@ export function getAuthBearer(req: IncomingMessage): string | null {
   const m = /^Bearer\s+(.+)$/i.exec(h);
   if (m) return m[1].trim();
   return h.trim();
+}
+
+export function authTokenMatches(presented: string | null, expected: string): boolean {
+  if (presented === null) return false;
+  const a = createHash("sha256").update(presented).digest();
+  const b = createHash("sha256").update(expected).digest();
+  return timingSafeEqual(a, b);
 }

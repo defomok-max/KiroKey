@@ -32,3 +32,10 @@ test("readJson reports malformed JSON as invalid_json", async () => {
       err.code === "invalid_json"
   );
 });
+
+test("readJson accepts structured +json content types", async () => {
+  const parsed = await readJson(
+    req('{"ok":true}', { "content-type": "application/vnd.anthropic+json; charset=utf-8" })
+  );
+  assert.deepEqual(parsed, { ok: true });
+});

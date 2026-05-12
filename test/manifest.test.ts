@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, utimes } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -27,19 +27,20 @@ test("discoverFromAwsSsoCache parses numeric expiresAt seconds", async () => {
 
 test("discoverFromAwsSsoCache derives expiresAt from expiresIn", async () => {
   const dir = await mkdtemp(join(tmpdir(), "kiro-cache-"));
-  const before = Date.now();
+  const observedAt = new Date("2025-01-01T00:00:00.000Z");
   try {
+    const path = join(dir, "kiro-auth-token.json");
     await writeFile(
-      join(dir, "kiro-auth-token.json"),
+      path,
       JSON.stringify({
         refreshToken: "aorAAAAAG-test-token",
         expiresIn: 60,
       })
     );
+    await utimes(path, observedAt, observedAt);
     const accounts = await discoverFromAwsSsoCache(dir);
     assert.equal(accounts.length, 1);
-    assert.ok(accounts[0].expiresAt >= before + 59_000);
-    assert.ok(accounts[0].expiresAt <= Date.now() + 60_000);
+    assert.equal(accounts[0].expiresAt, observedAt.getTime() + 60_000);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

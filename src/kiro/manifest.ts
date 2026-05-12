@@ -4,7 +4,7 @@
  * see a torn file.
  */
 
-import { readFile, writeFile, mkdir, rename, readdir, stat } from "node:fs/promises";
+import { readFile, writeFile, mkdir, rename, readdir, stat, chmod } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, basename } from "node:path";
@@ -22,9 +22,10 @@ interface ManifestFile {
 }
 
 export async function ensureManifestDir(): Promise<void> {
-  if (!existsSync(MANIFEST_DIR)) {
-    await mkdir(MANIFEST_DIR, { recursive: true });
-  }
+  await mkdir(MANIFEST_DIR, { recursive: true, mode: 0o700 });
+  await chmod(MANIFEST_DIR, 0o700).catch((err) =>
+    log.debug("manifest: chmod failed", { path: MANIFEST_DIR, err: (err as Error).message })
+  );
 }
 
 export async function loadManifest(): Promise<KiroAccount[]> {
@@ -104,9 +105,11 @@ export async function discoverFromAwsSsoCache(cacheDir: string): Promise<KiroAcc
   for (const entry of entries) {
     if (!entry.endsWith(".json")) continue;
     const fullPath = join(cacheDir, entry);
+    let observedAtMs = Date.now();
     try {
       const s = await stat(fullPath);
       if (!s.isFile()) continue;
+      observedAtMs = s.mtimeMs;
     } catch {
       continue;
     }
@@ -123,7 +126,7 @@ export async function discoverFromAwsSsoCache(cacheDir: string): Promise<KiroAcc
           authMethod: data.clientId && data.clientSecret ? "builder-id" : "social",
           refreshToken: rt,
           accessToken: typeof data.accessToken === "string" ? data.accessToken : null,
-          expiresAt: parseExpiresAt(data),
+          expiresAt: parseExpiresAt(data, observedAtMs),
           region: typeof data.region === "string" ? data.region : "us-east-1",
           clientId: typeof data.clientId === "string" ? data.clientId : null,
           clientSecret: typeof data.clientSecret === "string" ? data.clientSecret : null,
@@ -172,7 +175,7 @@ function tryExtractEmailFromJwt(token: string): string | null {
   }
 }
 
-function parseExpiresAt(data: Record<string, unknown>): number {
+function parseExpiresAt(data: Record<string, unknown>, observedAtMs: number): number {
   if (typeof data.expiresAt === "string") {
     const parsed = Date.parse(data.expiresAt);
     if (Number.isFinite(parsed)) return parsed;
@@ -181,7 +184,7 @@ function parseExpiresAt(data: Record<string, unknown>): number {
     return data.expiresAt < 10_000_000_000 ? data.expiresAt * 1000 : data.expiresAt;
   }
   if (typeof data.expiresIn === "number" && Number.isFinite(data.expiresIn)) {
-    return Date.now() + data.expiresIn * 1000;
+    return observedAtMs + data.expiresIn * 1000;
   }
   return 0;
 }

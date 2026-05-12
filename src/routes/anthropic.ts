@@ -163,7 +163,7 @@ interface OpenAIDeltaChunk {
  * Convert an OpenAI SSE stream (Buffer chunks) into an Anthropic Messages
  * SSE stream. Returns a Node Readable yielding Buffers.
  */
-function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: string): Readable {
+export function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: string): Readable {
   return Readable.from(
     (async function* (): AsyncIterable<Buffer> {
       let textIndex = -1;
@@ -178,6 +178,20 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
         Buffer.from(enc.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`));
 
       const messageId = `msg_${requestId.replace(/[^a-zA-Z0-9]/g, "").slice(0, 24)}`;
+      const messageStart = () =>
+        sseEvent("message_start", {
+          type: "message_start",
+          message: {
+            id: messageId,
+            type: "message",
+            role: "assistant",
+            model,
+            content: [],
+            stop_reason: null,
+            stop_sequence: null,
+            usage: { input_tokens: 0, output_tokens: 0 },
+          },
+        });
 
       let buffered = "";
       const decoder = new TextDecoder();
@@ -215,19 +229,7 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
 
           if (!messageStarted) {
             messageStarted = true;
-            yield sseEvent("message_start", {
-              type: "message_start",
-              message: {
-                id: messageId,
-                type: "message",
-                role: "assistant",
-                model,
-                content: [],
-                stop_reason: null,
-                stop_sequence: null,
-                usage: { input_tokens: 0, output_tokens: 0 },
-              },
-            });
+            yield messageStart();
           }
 
           for (const choice of parsed.choices) {
@@ -289,6 +291,10 @@ function openAiSseToAnthropicSse(openaiSse: Readable, model: string, requestId: 
             };
           }
         }
+      }
+
+      if (!messageStarted) {
+        yield messageStart();
       }
 
       // Close any open content blocks.
